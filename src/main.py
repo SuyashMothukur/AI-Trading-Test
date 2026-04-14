@@ -4,8 +4,9 @@ import json
 from typing import Any
 
 from .ai_advisor import propose_actions
-from .config import load_settings, validate_order_execution_allowed
+from .config import Settings, load_settings, validate_order_execution_allowed
 from .context import TradingContext, gather_trading_context
+from .learning import record_cycle_and_actions
 from .risk import position_map, validate_buy, validate_sell
 from .state import bump_orders_placed
 
@@ -34,11 +35,17 @@ def _sell_qty_for_action(
 
 def propose_plan(ctx: TradingContext) -> dict[str, Any]:
     s = ctx.settings
-    return propose_actions(
+    plan = propose_actions(
         api_key=s.openai_api_key,
         model=s.openai_model,
         user_payload=ctx.user_payload,
     )
+    record_cycle_and_actions(
+        payload=ctx.user_payload,
+        plan=plan,
+        model=s.openai_model,
+    )
+    return plan
 
 
 def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
@@ -128,40 +135,84 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
     return lines
 
 
-def run_once() -> int:
-    s = load_settings()
+def _max_confidence(plan: dict[str, Any]) -> float:
+    vals: list[float] = []
+    for a in plan.get("actions") or []:
+        v = a.get("confidence_0_to_1")
+        try:
+            if v is not None:
+                vals.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    return max(vals) if vals else 0.0
+
+
+def run_cycle(settings: Settings | None = None) -> dict[str, Any]:
+    s = settings or load_settings()
     if not s.alpaca_api_key or not s.alpaca_secret_key:
-        _print("Set ALPACA_API_KEY and ALPACA_SECRET_KEY in .env.")
-        return 1
+        return {"ok": False, "exit_code": 1, "error": "Set ALPACA_API_KEY and ALPACA_SECRET_KEY in .env."}
     if not s.openai_api_key:
-        _print("Set OPENAI_API_KEY in .env.")
-        return 1
+        return {"ok": False, "exit_code": 1, "error": "Set OPENAI_API_KEY in .env."}
 
     ctx, err = gather_trading_context(s)
     if err:
-        _print(err)
-        return 1
+        return {"ok": False, "exit_code": 1, "error": err}
     assert ctx is not None
 
+    warnings: list[str] = []
     if ctx.bars_warning:
-        _print(f"Market data warning (continuing with less context): {ctx.bars_warning}")
+        warnings.append(f"Market data warning (continuing with less context): {ctx.bars_warning}")
+    if ctx.news_warning:
+        warnings.append(f"News warning (continuing without news): {ctx.news_warning}")
+    if ctx.learning_update:
+        warnings.append(
+            "Learning update: "
+            f"{ctx.learning_update.get('resolved', 0)} action(s) resolved, "
+            f"{ctx.learning_update.get('pending', 0)} still pending."
+        )
 
     if ctx.blocked_reason:
-        _print(ctx.blocked_reason)
-        return 0
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "warnings": warnings,
+            "blocked_reason": ctx.blocked_reason,
+            "plan": None,
+            "execution_lines": [],
+            "max_confidence": 0.0,
+        }
 
     try:
         plan = propose_plan(ctx)
     except Exception as e:
-        _print(f"Model error: {e}")
-        return 1
+        return {"ok": False, "exit_code": 1, "warnings": warnings, "error": f"Model error: {e}"}
 
-    _print(json.dumps(plan, indent=2))
+    lines = execute_plan(ctx, plan)
+    return {
+        "ok": True,
+        "exit_code": 0,
+        "warnings": warnings,
+        "plan": plan,
+        "execution_lines": lines,
+        "max_confidence": _max_confidence(plan),
+        "action_count": len(plan.get("actions") or []),
+    }
 
-    for line in execute_plan(ctx, plan):
+
+def run_once() -> int:
+    result = run_cycle()
+    for line in result.get("warnings") or []:
         _print(line)
-
-    return 0
+    if result.get("error"):
+        _print(str(result["error"]))
+    if result.get("blocked_reason"):
+        _print(str(result["blocked_reason"]))
+    plan = result.get("plan")
+    if plan:
+        _print(json.dumps(plan, indent=2))
+    for line in result.get("execution_lines") or []:
+        _print(line)
+    return int(result.get("exit_code", 1))
 
 
 def main() -> None:

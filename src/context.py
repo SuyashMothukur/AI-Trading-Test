@@ -5,6 +5,7 @@ from typing import Any
 
 from .broker_alpaca import AccountView, AlpacaBroker
 from .config import Settings, kill_switch_active
+from .learning import build_learning_snapshot, evaluate_pending_actions
 from .risk import daily_loss_tripped, position_map
 from .state import DailyState, ensure_session_start_equity, utc_now_iso
 from .symbols_context import symbols_for_context
@@ -22,6 +23,8 @@ class TradingContext:
     daily_state: DailyState
     user_payload: dict[str, Any]
     bars_warning: str | None
+    news_warning: str | None
+    learning_update: dict[str, Any] | None
     blocked_reason: str | None
 
 
@@ -54,6 +57,27 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
     except Exception as e:
         bars_warning = str(e)
 
+    learning_update: dict[str, Any] | None = None
+    learning_snapshot = {"global": {}, "symbol_priors": [], "notes": "Unavailable"}
+    try:
+        learning_update = evaluate_pending_actions(
+            broker=broker,
+            eval_delay_hours=s.learning_eval_delay_hours,
+        )
+        learning_snapshot = build_learning_snapshot(s.learning_min_samples)
+    except Exception:
+        pass
+
+    news_warning: str | None = None
+    news_items: list[dict[str, Any]] = []
+    try:
+        news_items = broker.latest_news(
+            symbols=ctx_syms[: s.news_context_symbols],
+            limit=s.news_headlines_limit,
+        )
+    except Exception as e:
+        news_warning = str(e)
+
     user_payload = {
         "utc_time": utc_now_iso(),
         "alpaca_paper": s.alpaca_paper,
@@ -78,6 +102,8 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
         "context_symbols": ctx_syms,
         "open_positions": positions,
         "bars_by_symbol": bars,
+        "recent_news": news_items,
+        "learning_feedback": learning_snapshot,
     }
 
     return (
@@ -91,6 +117,8 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
             daily_state=dstate,
             user_payload=user_payload,
             bars_warning=bars_warning,
+            news_warning=news_warning,
+            learning_update=learning_update,
             blocked_reason=blocked,
         ),
         None,

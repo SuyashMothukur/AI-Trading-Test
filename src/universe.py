@@ -11,17 +11,29 @@ SP500_CSV = (
 )
 
 
-def fetch_sp500_symbols(timeout: float = 30.0) -> list[str]:
-    """Returns S&P 500 tickers (large-cap US equities), from a public constituents CSV."""
+def fetch_sp500_constituents(timeout: float = 30.0) -> list[dict[str, str]]:
+    """Returns S&P 500 constituents with symbol and company metadata."""
     r = httpx.get(SP500_CSV, timeout=timeout)
     r.raise_for_status()
     reader = csv.DictReader(StringIO(r.text))
-    out: list[str] = []
+    out: list[dict[str, str]] = []
     for row in reader:
-        sym = (row.get("Symbol") or "").strip().upper()
-        if sym:
-            out.append(sym)
-    return sorted(set(out))
+        symbol = (row.get("Symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        out.append(
+            {
+                "symbol": symbol,
+                "name": (row.get("Name") or "").strip(),
+                "sector": (row.get("Sector") or "").strip(),
+            }
+        )
+    return sorted(out, key=lambda r: r["symbol"])
+
+
+def fetch_sp500_symbols(timeout: float = 30.0) -> list[str]:
+    """Returns S&P 500 tickers (large-cap US equities), from a public constituents CSV."""
+    return [row["symbol"] for row in fetch_sp500_constituents(timeout=timeout)]
 
 
 def resolve_universe(explicit: list[str] | None) -> list[str]:
