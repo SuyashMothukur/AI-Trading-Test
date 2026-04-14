@@ -6,6 +6,7 @@ from typing import Any
 from .ai_advisor import propose_actions
 from .config import Settings, load_settings, validate_order_execution_allowed
 from .context import TradingContext, gather_trading_context
+from .decision_engine import evaluate_action_guardrails
 from .learning import record_cycle_and_actions
 from .risk import position_map, validate_buy, validate_sell
 from .state import bump_orders_placed
@@ -83,6 +84,15 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
             continue
 
         if side == "buy":
+            g_ok, g_reason = evaluate_action_guardrails(
+                action=act,
+                learning_feedback=ctx.user_payload.get("learning_feedback") or {},
+                quant_snapshot=ctx.user_payload.get("quant_snapshot") or {},
+                min_samples=s.learning_min_samples,
+            )
+            if not g_ok:
+                lines.append(f"GUARDRAIL BLOCK {ticker}: {g_reason}")
+                continue
             n = act.get("notional_usd")
             if n is None:
                 lines.append(f"Skip BUY {ticker}: need notional_usd.")
@@ -108,6 +118,15 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
             acct = broker.account()
 
         elif side == "sell":
+            g_ok, g_reason = evaluate_action_guardrails(
+                action=act,
+                learning_feedback=ctx.user_payload.get("learning_feedback") or {},
+                quant_snapshot=ctx.user_payload.get("quant_snapshot") or {},
+                min_samples=s.learning_min_samples,
+            )
+            if not g_ok:
+                lines.append(f"GUARDRAIL BLOCK {ticker}: {g_reason}")
+                continue
             sq = _sell_qty_for_action(act, pmap.get(ticker))
             if sq is None or sq <= 0:
                 lines.append(f"Skip SELL {ticker}: no position / size.")

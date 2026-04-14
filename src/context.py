@@ -6,6 +6,7 @@ from typing import Any
 from .broker_alpaca import AccountView, AlpacaBroker
 from .config import Settings, kill_switch_active
 from .learning import build_learning_snapshot, evaluate_pending_actions
+from .quant import build_quant_snapshot
 from .risk import daily_loss_tripped, position_map
 from .state import DailyState, ensure_session_start_equity, utc_now_iso
 from .symbols_context import symbols_for_context
@@ -102,6 +103,7 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
         "context_symbols": ctx_syms,
         "open_positions": positions,
         "bars_by_symbol": bars,
+        "quant_snapshot": build_quant_snapshot(bars),
         "recent_news": news_items,
         "learning_feedback": learning_snapshot,
     }
