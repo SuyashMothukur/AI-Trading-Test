@@ -503,7 +503,7 @@ def _render_equity_chart(df: pd.DataFrame, compare_mode: str = "None") -> None:
         pad = max(spread * 0.18, 1.0)
     domain_min = y_min - pad
     domain_max = y_max + pad
-    base = alt.Chart(df).encode(
+    base = alt.Chart(plot_df).encode(
         x=alt.X("time:T", title=None, axis=alt.Axis(orient="bottom", labelPadding=8, tickCount=8, grid=False)),
         y=alt.Y(
             "plot_value:Q",
@@ -538,6 +538,8 @@ def _render_equity_chart(df: pd.DataFrame, compare_mode: str = "None") -> None:
         titleColor="#aebed8",
     )
     st.altair_chart(chart, use_container_width=True)
+    if spread < 0.01:
+        st.caption("Equity has been effectively flat in this window.")
 
 
 def _history_stats(df: pd.DataFrame, positions: list[dict[str, Any]]) -> dict[str, str]:
