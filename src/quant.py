@@ -35,11 +35,14 @@ def symbol_metrics(bars_by_symbol: dict[str, list[dict[str, Any]]]) -> dict[str,
         vol10 = statistics.pstdev(rets) if len(rets) >= 2 else 0.0
         mom5 = (closes[-1] / closes[-6]) - 1.0
         mom10 = (closes[-1] / closes[-11]) - 1.0 if len(closes) >= 11 else mom5
+        vols = [float(b.get("v") or 0.0) for b in bars[-10:]]
+        avg_vol_10d = (sum(vols) / len(vols)) if vols else 0.0
         out[sym.upper()] = {
             "last_close": closes[-1],
             "mom_5d": mom5,
             "mom_10d": mom10,
             "vol_10d": vol10,
+            "avg_volume_10d": avg_vol_10d,
         }
     return out
 

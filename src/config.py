@@ -32,6 +32,20 @@ class Settings:
     scheduler_confidence_threshold: float
     scheduler_max_extra_runs_per_day: int
     scheduler_min_gap_minutes: int
+    hard_exits_enabled: bool
+    stop_loss_pct: float
+    take_profit_pct: float
+    trailing_stop_pct: float
+    trailing_activation_pct: float
+    max_hold_days: int
+    max_sector_exposure_pct: float
+    min_avg_volume_10d: float
+    regime_mult_bullish: float
+    regime_mult_choppy: float
+    regime_mult_bearish: float
+    scheduler_enabled: bool
+    alert_webhook_url: str
+    alert_on_failure: bool
     trade_universe: list[str] | None
 
 
@@ -85,6 +99,20 @@ def load_settings() -> Settings:
             os.getenv("SCHEDULER_MAX_EXTRA_RUNS_PER_DAY"), 3
         ),
         scheduler_min_gap_minutes=_int(os.getenv("SCHEDULER_MIN_GAP_MINUTES"), 90),
+        hard_exits_enabled=_bool(os.getenv("HARD_EXITS_ENABLED"), default=True),
+        stop_loss_pct=_float(os.getenv("STOP_LOSS_PCT"), 0.06),
+        take_profit_pct=_float(os.getenv("TAKE_PROFIT_PCT"), 0.12),
+        trailing_stop_pct=_float(os.getenv("TRAILING_STOP_PCT"), 0.05),
+        trailing_activation_pct=_float(os.getenv("TRAILING_ACTIVATION_PCT"), 0.03),
+        max_hold_days=_int(os.getenv("MAX_HOLD_DAYS"), 15),
+        max_sector_exposure_pct=_float(os.getenv("MAX_SECTOR_EXPOSURE_PCT"), 0.35),
+        min_avg_volume_10d=_float(os.getenv("MIN_AVG_VOLUME_10D"), 500000.0),
+        regime_mult_bullish=_float(os.getenv("REGIME_MULT_BULLISH"), 1.0),
+        regime_mult_choppy=_float(os.getenv("REGIME_MULT_CHOPPY"), 0.6),
+        regime_mult_bearish=_float(os.getenv("REGIME_MULT_BEARISH"), 0.35),
+        scheduler_enabled=_bool(os.getenv("SCHEDULER_ENABLED"), default=True),
+        alert_webhook_url=os.getenv("ALERT_WEBHOOK_URL", "").strip(),
+        alert_on_failure=_bool(os.getenv("ALERT_ON_FAILURE"), default=False),
         trade_universe=universe,
     )
 

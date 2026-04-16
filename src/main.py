@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from .ai_advisor import propose_actions
 from .config import Settings, load_settings, validate_order_execution_allowed
 from .context import TradingContext, gather_trading_context
-from .decision_engine import evaluate_action_guardrails
+from .decision_engine import evaluate_action_guardrails, regime_notional_multiplier
 from .learning import record_cycle_and_actions
+from .position_state import load_position_state, save_position_state, sync_position_state
+from .reporting import write_daily_postmortem
 from .risk import position_map, validate_buy, validate_sell
 from .state import bump_orders_placed
 
@@ -49,6 +52,82 @@ def propose_plan(ctx: TradingContext) -> dict[str, Any]:
     return plan
 
 
+def _sector_exposure_after_buy(
+    *,
+    ticker: str,
+    buy_notional: float,
+    pmap: dict[str, dict[str, Any]],
+    symbol_metadata: dict[str, dict[str, Any]],
+) -> tuple[str, float]:
+    sector = (symbol_metadata.get(ticker) or {}).get("sector", "Unknown")
+    current = 0.0
+    for sym, pos in pmap.items():
+        s = (symbol_metadata.get(sym) or {}).get("sector", "Unknown")
+        if s == sector:
+            current += float(pos.get("market_value_usd") or 0.0)
+    return sector, current + buy_notional
+
+
+def _days_since_iso(ts: str | None) -> float | None:
+    if not ts:
+        return None
+    try:
+        d = datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc) - d).total_seconds() / 86400.0
+
+
+def _run_hard_exits(ctx: TradingContext, lines: list[str]) -> int:
+    s = ctx.settings
+    if not s.hard_exits_enabled:
+        return 0
+    state = sync_position_state(
+        positions=ctx.positions,
+        symbol_metadata=ctx.user_payload.get("symbol_metadata") or {},
+    )
+    sold = 0
+    for pos in ctx.positions:
+        sym = str(pos.get("symbol") or "").upper()
+        if not sym:
+            continue
+        qty = float(pos.get("qty_available") or 0.0)
+        if qty <= 0 or qty < 1e-6:
+            continue
+        entry = float(pos.get("avg_entry_price") or 0.0)
+        px = float(pos.get("current_price_usd") or 0.0)
+        if entry <= 0 or px <= 0:
+            continue
+        st = state.get(sym) or {}
+        high = float(st.get("high_watermark") or px)
+        opened_days = _days_since_iso(st.get("opened_at"))
+
+        reason: str | None = None
+        if px <= entry * (1.0 - s.stop_loss_pct):
+            reason = f"stop-loss ({(px/entry-1):.2%})"
+        elif px >= entry * (1.0 + s.take_profit_pct):
+            reason = f"take-profit ({(px/entry-1):.2%})"
+        elif high >= entry * (1.0 + s.trailing_activation_pct) and px <= high * (
+            1.0 - s.trailing_stop_pct
+        ):
+            reason = "trailing-stop"
+        elif opened_days is not None and opened_days >= s.max_hold_days:
+            reason = f"max-hold-days ({opened_days:.1f}d)"
+
+        if reason:
+            lines.append(f"HARD EXIT SELL {sym} qty={qty:.6f} reason={reason}")
+            try:
+                ctx.broker.market_sell_qty(sym, qty)
+                bump_orders_placed(1)
+                sold += 1
+                if sym in state:
+                    state.pop(sym, None)
+            except Exception as e:
+                lines.append(f"HARD EXIT FAILED {sym}: {e}")
+    save_position_state(state)
+    return sold
+
+
 def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
     """Submit orders per plan. Returns log lines."""
     lines: list[str] = []
@@ -75,8 +154,22 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
         lines.append("MAX_ORDERS_PER_DAY reached — not submitting.")
         return lines
 
+    hard_exit_sells = _run_hard_exits(ctx, lines)
+    if hard_exit_sells:
+        lines.append(f"Hard exits executed: {hard_exit_sells}")
+        # Refresh account and positions after forced sells.
+        acct = broker.account()
+        positions = broker.positions()
+        pmap = position_map(positions)
+
     actions = plan.get("actions") or []
     submitted = 0
+    regime_mult = regime_notional_multiplier(
+        ctx.user_payload.get("quant_snapshot") or {},
+        bullish=s.regime_mult_bullish,
+        choppy=s.regime_mult_choppy,
+        bearish=s.regime_mult_bearish,
+    )
     for act in actions:
         side = (act.get("side") or "hold").lower()
         ticker = (act.get("ticker") or "").upper()
@@ -89,6 +182,7 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
                 learning_feedback=ctx.user_payload.get("learning_feedback") or {},
                 quant_snapshot=ctx.user_payload.get("quant_snapshot") or {},
                 min_samples=s.learning_min_samples,
+                min_avg_volume_10d=s.min_avg_volume_10d,
             )
             if not g_ok:
                 lines.append(f"GUARDRAIL BLOCK {ticker}: {g_reason}")
@@ -97,7 +191,22 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
             if n is None:
                 lines.append(f"Skip BUY {ticker}: need notional_usd.")
                 continue
-            notional = float(n)
+            notional = float(n) * regime_mult
+            if notional < 20:
+                lines.append(f"BLOCK BUY {ticker}: regime-sized notional too small (${notional:.2f})")
+                continue
+            sector, sector_after = _sector_exposure_after_buy(
+                ticker=ticker,
+                buy_notional=notional,
+                pmap=pmap,
+                symbol_metadata=ctx.user_payload.get("symbol_metadata") or {},
+            )
+            if acct.equity_usd > 0 and sector_after > acct.equity_usd * s.max_sector_exposure_pct:
+                lines.append(
+                    f"BLOCK BUY {ticker}: sector {sector} exposure would be "
+                    f"{(sector_after/acct.equity_usd):.1%} > {s.max_sector_exposure_pct:.1%}"
+                )
+                continue
             cur_mv = float(pmap.get(ticker, {}).get("market_value_usd") or 0.0)
             d = validate_buy(
                 ticker=ticker,
@@ -112,10 +221,13 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
                 lines.append(f"BLOCK BUY {ticker}: {d.reason}")
                 continue
             lines.append(f"SUBMIT BUY {ticker} notional=${notional:.2f}")
-            broker.market_buy_notional(ticker, notional)
-            bump_orders_placed(1)
-            submitted += 1
-            acct = broker.account()
+            try:
+                broker.market_buy_notional(ticker, notional)
+                bump_orders_placed(1)
+                submitted += 1
+                acct = broker.account()
+            except Exception as e:
+                lines.append(f"BUY FAILED {ticker}: {e}")
 
         elif side == "sell":
             g_ok, g_reason = evaluate_action_guardrails(
@@ -123,12 +235,13 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
                 learning_feedback=ctx.user_payload.get("learning_feedback") or {},
                 quant_snapshot=ctx.user_payload.get("quant_snapshot") or {},
                 min_samples=s.learning_min_samples,
+                min_avg_volume_10d=s.min_avg_volume_10d,
             )
             if not g_ok:
                 lines.append(f"GUARDRAIL BLOCK {ticker}: {g_reason}")
                 continue
             sq = _sell_qty_for_action(act, pmap.get(ticker))
-            if sq is None or sq <= 0:
+            if sq is None or sq <= 0 or sq < 1e-6:
                 lines.append(f"Skip SELL {ticker}: no position / size.")
                 continue
             d = validate_sell(
@@ -141,11 +254,14 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
                 lines.append(f"BLOCK SELL {ticker}: {d.reason}")
                 continue
             lines.append(f"SUBMIT SELL {ticker} qty={sq:.6f}")
-            broker.market_sell_qty(ticker, sq)
-            bump_orders_placed(1)
-            submitted += 1
-            positions = broker.positions()
-            pmap = position_map(positions)
+            try:
+                broker.market_sell_qty(ticker, sq)
+                bump_orders_placed(1)
+                submitted += 1
+                positions = broker.positions()
+                pmap = position_map(positions)
+            except Exception as e:
+                lines.append(f"SELL FAILED {ticker}: {e}")
 
         else:
             lines.append(f"Unknown side {side!r} for {ticker}, skip.")
@@ -207,6 +323,7 @@ def run_cycle(settings: Settings | None = None) -> dict[str, Any]:
         return {"ok": False, "exit_code": 1, "warnings": warnings, "error": f"Model error: {e}"}
 
     lines = execute_plan(ctx, plan)
+    write_daily_postmortem(execution_lines=lines)
     return {
         "ok": True,
         "exit_code": 0,

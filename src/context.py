@@ -10,7 +10,7 @@ from .quant import build_quant_snapshot
 from .risk import daily_loss_tripped, position_map
 from .state import DailyState, ensure_session_start_equity, utc_now_iso
 from .symbols_context import symbols_for_context
-from .universe import resolve_universe
+from .universe import resolve_universe_with_metadata
 
 
 @dataclass
@@ -33,7 +33,7 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
     if kill_switch_active():
         return None, "STOP_TRADING file is present in the project root."
 
-    uni = resolve_universe(s.trade_universe)
+    uni, meta = resolve_universe_with_metadata(s.trade_universe)
     broker = AlpacaBroker(s.alpaca_api_key, s.alpaca_secret_key, paper=s.alpaca_paper)
     acct = broker.account()
     positions = broker.positions()
@@ -100,6 +100,7 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
             "`bars_by_symbol` may only cover `context_symbols` this cycle."
         ),
         "full_universe": uni,
+        "symbol_metadata": meta,
         "context_symbols": ctx_syms,
         "open_positions": positions,
         "bars_by_symbol": bars,

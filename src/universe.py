@@ -40,3 +40,19 @@ def resolve_universe(explicit: list[str] | None) -> list[str]:
     if explicit:
         return sorted({t.upper() for t in explicit})
     return fetch_sp500_symbols()
+
+
+def resolve_universe_with_metadata(
+    explicit: list[str] | None,
+) -> tuple[list[str], dict[str, dict[str, str]]]:
+    if explicit:
+        syms = sorted({t.upper() for t in explicit})
+        meta = {
+            s: {"symbol": s, "name": "Custom universe", "sector": "Custom"}
+            for s in syms
+        }
+        return syms, meta
+    rows = fetch_sp500_constituents()
+    syms = [r["symbol"] for r in rows]
+    meta = {r["symbol"]: r for r in rows}
+    return syms, meta

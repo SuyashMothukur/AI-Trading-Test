@@ -1,8 +1,9 @@
 {
-  "day": "2026-04-15",
+  "day": "2026-04-16",
   "runs_today": 1,
   "extra_runs_today": 0,
-  "last_run_ts": "2026-04-15T00:20:07.472375+00:00",
-  "last_max_confidence": 0.7,
-  "last_reason": "daily_minimum"
+  "last_run_ts": "2026-04-16T03:38:36.854075+00:00",
+  "last_max_confidence": 0.6,
+  "last_reason": "daily_minimum",
+  "enabled": true
 }

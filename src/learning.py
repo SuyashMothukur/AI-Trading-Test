@@ -95,6 +95,14 @@ def record_cycle_and_actions(
             "plan": plan,
         },
     )
+    quant_map = {
+        str(x.get("ticker") or "").upper(): x
+        for x in (payload.get("quant_snapshot") or {}).get("symbol_metrics", [])
+    }
+    sector_map = payload.get("symbol_metadata") or {}
+    regime = ((payload.get("quant_snapshot") or {}).get("market_regime") or {}).get(
+        "regime"
+    )
     for act in plan.get("actions") or []:
         ticker = str(act.get("ticker") or "").upper()
         side = str(act.get("side") or "hold").lower()
@@ -114,6 +122,10 @@ def record_cycle_and_actions(
                 "horizon": act.get("horizon"),
                 "risk": act.get("risk"),
                 "decision_price": _last_close_from_payload(payload, ticker),
+                "sector": (sector_map.get(ticker) or {}).get("sector", "Unknown"),
+                "regime_at_decision": regime,
+                "mom_5d_at_decision": (quant_map.get(ticker) or {}).get("mom_5d"),
+                "vol_10d_at_decision": (quant_map.get(ticker) or {}).get("vol_10d"),
                 "status": "pending",
                 "resolved_ts": None,
                 "realized_return_pct": None,
@@ -230,6 +242,23 @@ def build_learning_report(min_samples: int = 3) -> dict[str, Any]:
         key=lambda r: r.get("resolved_ts") or r.get("ts") or "",
         reverse=True,
     )[:25]
+    def _bucket_stats(rows_in: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+        buckets: dict[str, list[float]] = defaultdict(list)
+        for r in rows_in:
+            k = str(r.get(key) or "unknown")
+            buckets[k].append(float(r.get("realized_return_pct") or 0.0))
+        out: list[dict[str, Any]] = []
+        for k, vals in buckets.items():
+            wins = sum(1 for v in vals if v > 0)
+            out.append(
+                {
+                    key: k,
+                    "samples": len(vals),
+                    "avg_return_pct": (sum(vals) / len(vals)) if vals else None,
+                    "win_rate": (wins / len(vals)) if vals else None,
+                }
+            )
+        return sorted(out, key=lambda x: x.get("avg_return_pct") or -9, reverse=True)
     return {
         "global": {
             **(snapshot.get("global") or {}),
@@ -239,5 +268,8 @@ def build_learning_report(min_samples: int = 3) -> dict[str, Any]:
         "top_symbols": top,
         "worst_symbols": worst,
         "recent_resolved_actions": recent_resolved,
+        "by_side": _bucket_stats(resolved, "side"),
+        "by_regime": _bucket_stats(resolved, "regime_at_decision"),
+        "by_horizon": _bucket_stats(resolved, "horizon"),
     }
 

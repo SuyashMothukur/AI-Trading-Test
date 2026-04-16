@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import ROUND_DOWN, Decimal
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -164,9 +165,14 @@ class AlpacaBroker:
         return self._trade.submit_order(order_data=order)
 
     def market_sell_qty(self, symbol: str, qty: float) -> Any:
+        safe_qty = float(
+            Decimal(str(max(qty, 0.0))).quantize(
+                Decimal("0.000001"), rounding=ROUND_DOWN
+            )
+        )
         order = MarketOrderRequest(
             symbol=symbol,
-            qty=round(qty, 6),
+            qty=safe_qty,
             side=OrderSide.SELL,
             time_in_force=TimeInForce.DAY,
         )

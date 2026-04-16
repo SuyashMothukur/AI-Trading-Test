@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import time
 from html import escape
-from pathlib import Path
 from typing import Any
 
 import altair as alt
@@ -20,6 +19,12 @@ from src.context import TradingContext, gather_trading_context
 from src.decision_engine import evaluate_action_guardrails
 from src.learning import build_learning_report
 from src.main import execute_plan, propose_plan
+from src.scheduler import (
+    scheduler_set_enabled,
+    scheduler_status,
+    start_scheduler_process,
+    stop_scheduler_process,
+)
 from src.risk import validate_buy, validate_sell
 from src.universe import fetch_sp500_constituents
 
@@ -617,12 +622,15 @@ def _render_trace(trace: list[dict[str, str]]) -> None:
         )
 
 
-def _scheduler_state() -> dict[str, Any] | None:
-    p = project_root() / "data" / "runtime_scheduler.json"
-    if not p.exists():
+def _latest_postmortem() -> dict[str, Any] | None:
+    d = project_root() / "data" / "reports"
+    if not d.exists():
+        return None
+    files = sorted(d.glob("postmortem_*.json"))
+    if not files:
         return None
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        return json.loads(files[-1].read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
 
@@ -747,7 +755,8 @@ with overview_tab:
             "<div class='section-subtle'>Operational snapshot</div></div>",
             unsafe_allow_html=True,
         )
-        sched = _scheduler_state()
+        sched_info = scheduler_status()
+        sched = sched_info.get("state") or {}
         resolved = (ctx.user_payload.get("learning_feedback") or {}).get("global", {}).get("resolved_actions")
         regime = ((ctx.user_payload.get("quant_snapshot") or {}).get("market_regime") or {}).get("regime")
         health_html = (
@@ -755,12 +764,34 @@ with overview_tab:
             + _health_item("Orders placed today", str(ctx.daily_state.orders_placed), "good" if ctx.daily_state.orders_placed > 0 else "neutral")
             + _health_item("News items in cycle", str(len(ctx.user_payload.get("recent_news") or [])))
             + _health_item("Market regime", str(regime or "Unknown"), "warn" if str(regime).lower() == "volatile" else "neutral")
-            + _health_item("Scheduler runs today", str((sched or {}).get("runs_today") or 0))
-            + _health_item("Last scheduler reason", str((sched or {}).get("last_reason") or "Not available"))
+            + _health_item("Scheduler runs today", str((sched).get("runs_today") or 0))
+            + _health_item("Last scheduler reason", str((sched).get("last_reason") or "Not available"))
             + _health_item("Resolved learning actions", str(resolved or 0))
             + "</div>"
         )
         st.markdown(health_html, unsafe_allow_html=True)
+        sc1, sc2, sc3 = st.columns(3)
+        if sc1.button(
+            "Start scheduler",
+            use_container_width=True,
+            disabled=bool(sched_info.get("running")),
+        ):
+            start_scheduler_process()
+            st.rerun()
+        if sc2.button(
+            "Stop scheduler",
+            use_container_width=True,
+            disabled=not bool(sched_info.get("running")),
+        ):
+            stop_scheduler_process()
+            st.rerun()
+        toggle_enabled = bool((sched).get("enabled", True))
+        if sc3.button(
+            "Disable auto-runs" if toggle_enabled else "Enable auto-runs",
+            use_container_width=True,
+        ):
+            scheduler_set_enabled(not toggle_enabled)
+            st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='dashboard-card'>", unsafe_allow_html=True)
@@ -869,6 +900,36 @@ with learning_tab:
         st.dataframe(view, use_container_width=True, hide_index=True)
     else:
         st.caption("No resolved actions yet. Let cycles run for at least the evaluation delay window.")
+
+    b1, b2, b3 = st.columns(3)
+    with b1:
+        st.subheader("By side")
+        st.dataframe(
+            pd.DataFrame(report.get("by_side") or []),
+            use_container_width=True,
+            hide_index=True,
+        )
+    with b2:
+        st.subheader("By regime")
+        st.dataframe(
+            pd.DataFrame(report.get("by_regime") or []),
+            use_container_width=True,
+            hide_index=True,
+        )
+    with b3:
+        st.subheader("By horizon")
+        st.dataframe(
+            pd.DataFrame(report.get("by_horizon") or []),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    pm = _latest_postmortem()
+    st.subheader("Latest post-mortem")
+    if pm:
+        st.json(pm)
+    else:
+        st.caption("No post-mortem report yet.")
 
 with universe_tab:
     explicit = tuple(settings.trade_universe or [])

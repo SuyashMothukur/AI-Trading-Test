@@ -27,6 +27,7 @@ def evaluate_action_guardrails(
     learning_feedback: dict[str, Any],
     quant_snapshot: dict[str, Any],
     min_samples: int,
+    min_avg_volume_10d: float = 500000.0,
 ) -> tuple[bool, str]:
     side = str(action.get("side") or "hold").lower()
     ticker = str(action.get("ticker") or "").upper()
@@ -46,10 +47,13 @@ def evaluate_action_guardrails(
         if met:
             mom5 = float(met.get("mom_5d") or 0.0)
             vol10 = float(met.get("vol_10d") or 0.0)
+            avg_vol = float(met.get("avg_volume_10d") or 0.0)
             if mom5 < -0.01:
                 return False, f"negative 5D momentum ({mom5:.2%})"
             if vol10 > 0.07:
                 return False, f"volatility too high ({vol10:.2%})"
+            if avg_vol < min_avg_volume_10d:
+                return False, f"liquidity too low (avg_volume_10d={avg_vol:,.0f})"
             if regime == "bearish" and conf < 0.75:
                 return False, f"bearish regime requires >=0.75 confidence (got {conf:.2f})"
         if pri:
@@ -60,4 +64,19 @@ def evaluate_action_guardrails(
                     f"historical prior weak (samples={samples}, avg_return={avg:.2%})"
                 )
     return True, "passes quant/learning guardrails"
+
+
+def regime_notional_multiplier(
+    quant_snapshot: dict[str, Any],
+    *,
+    bullish: float,
+    choppy: float,
+    bearish: float,
+) -> float:
+    regime = ((quant_snapshot.get("market_regime") or {}).get("regime") or "unknown").lower()
+    if regime == "bullish":
+        return bullish
+    if regime == "bearish":
+        return bearish
+    return choppy
 
