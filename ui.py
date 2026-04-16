@@ -883,6 +883,19 @@ with learning_tab:
     c.metric("Win rate", f"{(float(g.get('win_rate') or 0)*100):.1f}%")
     d.metric("Avg return/action", f"{(float(g.get('avg_return_pct') or 0)*100):.2f}%")
 
+    e1, e2, e3, e4 = st.columns(4)
+    e1.metric("Expectancy/action", f"{(float(g.get('expectancy_pct') or 0)*100):.2f}%")
+    pf = g.get("profit_factor")
+    e2.metric("Profit factor", "-" if pf is None else f"{float(pf):.2f}")
+    pr = g.get("payoff_ratio")
+    e3.metric("Payoff ratio", "-" if pr is None else f"{float(pr):.2f}")
+    e4.metric(
+        "Avg win / Avg loss",
+        f"{(float(g.get('avg_win_pct') or 0)*100):.2f}% / -{(float(g.get('avg_loss_pct_abs') or 0)*100):.2f}%"
+        if g.get("avg_win_pct") is not None and g.get("avg_loss_pct_abs") is not None
+        else "-",
+    )
+
     t1, t2 = st.columns(2)
     with t1:
         st.subheader("Top symbols")

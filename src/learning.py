@@ -242,6 +242,31 @@ def build_learning_report(min_samples: int = 3) -> dict[str, Any]:
         key=lambda r: r.get("resolved_ts") or r.get("ts") or "",
         reverse=True,
     )[:25]
+
+    returns = [float(r.get("realized_return_pct") or 0.0) for r in resolved]
+    wins_only = [r for r in returns if r > 0]
+    losses_only = [r for r in returns if r < 0]
+    avg_win = (sum(wins_only) / len(wins_only)) if wins_only else None
+    avg_loss_abs = (
+        abs(sum(losses_only) / len(losses_only)) if losses_only else None
+    )
+    win_rate = (
+        (len(wins_only) / len(returns))
+        if returns
+        else None
+    )
+    expectancy = None
+    if win_rate is not None and avg_win is not None and avg_loss_abs is not None:
+        expectancy = win_rate * avg_win - (1.0 - win_rate) * avg_loss_abs
+    gross_win = sum(wins_only) if wins_only else None
+    gross_loss_abs = abs(sum(losses_only)) if losses_only else None
+    profit_factor = None
+    if gross_win is not None and gross_loss_abs:
+        profit_factor = gross_win / gross_loss_abs
+    payoff_ratio = None
+    if avg_win is not None and avg_loss_abs:
+        payoff_ratio = avg_win / avg_loss_abs if avg_loss_abs > 0 else None
+
     def _bucket_stats(rows_in: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
         buckets: dict[str, list[float]] = defaultdict(list)
         for r in rows_in:
@@ -264,6 +289,11 @@ def build_learning_report(min_samples: int = 3) -> dict[str, Any]:
             **(snapshot.get("global") or {}),
             "pending_actions": len(pending),
             "total_logged_actions": len(rows),
+            "avg_win_pct": avg_win,
+            "avg_loss_pct_abs": avg_loss_abs,
+            "expectancy_pct": expectancy,
+            "profit_factor": profit_factor,
+            "payoff_ratio": payoff_ratio,
         },
         "top_symbols": top,
         "worst_symbols": worst,
