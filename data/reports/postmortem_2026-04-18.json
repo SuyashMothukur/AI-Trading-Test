@@ -1,0 +1,19 @@
+{
+  "day_utc": "2026-04-18",
+  "generated_at_utc": "2026-04-18T00:23:53.538014+00:00",
+  "actions_logged_today": 3,
+  "resolved_today": 0,
+  "pending_today": 3,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "Skip SELL WFC: no position / size.",
+    "Skip SELL UPS: no position / size.",
+    "GUARDRAIL BLOCK VTRS: liquidity too low (avg_volume_10d=398,955)",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}
