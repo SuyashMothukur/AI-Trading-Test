@@ -201,8 +201,34 @@ def _inject_style() -> None:
             word-break: break-word;
           }
           .tone-good {color: #7ce5bf;}
+          .tone-bad {color: #fda4af;}
           .tone-neutral {color: #d7e3fb;}
           .tone-warn {color: #fbbf24;}
+          .profit-total-strip {
+            margin-top: 12px;
+            border: 1px solid rgba(122, 149, 196, 0.28);
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: rgba(8, 14, 28, 0.56);
+          }
+          .profit-total-label {
+            font-size: 0.67rem;
+            color: #8797b3;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+          }
+          .profit-total-value {
+            font-size: 1.35rem;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+          }
+          .profit-total-sub {
+            margin-top: 6px;
+            font-size: 0.76rem;
+            color: #8ea0be;
+            line-height: 1.35;
+          }
           .table-wrap {
             border: 1px solid rgba(122, 149, 196, 0.28);
             border-radius: 12px;
@@ -437,6 +463,62 @@ def _health_item(label: str, value: str, tone: str = "neutral") -> str:
         "<div class='health-item'>"
         f"<div class='health-key'>{escape(label)}</div>"
         f"<div class='health-value {tone_cls}'>{escape(value)}</div>"
+        "</div>"
+    )
+
+
+def _pl_tone_class(net: float) -> str:
+    if net > 0:
+        return "tone-good"
+    if net < 0:
+        return "tone-bad"
+    return "tone-neutral"
+
+
+def _total_profits_strip_html(
+    ctx: TradingContext,
+    hist_df: pd.DataFrame,
+    period: str,
+    timeframe: str,
+    hist_error: str | None,
+) -> str:
+    """
+    Estimated closed-book P/L = (equity change in chart window) − (open unrealized).
+    Uses first/last *equity* bars — not Alpaca's profit_loss field, which can disagree with equity.
+    """
+    positions = ctx.positions or []
+    total_unrealized = sum(float((p or {}).get("unrealized_pl_usd") or 0.0) for p in positions)
+    n = len(positions)
+    if hist_error:
+        tone = "tone-neutral"
+        primary = "—"
+        sub = f"Equity history unavailable ({hist_error}). Open unrealized: {_fmt_signed_currency(total_unrealized)}."
+    elif hist_df.empty:
+        tone = "tone-neutral"
+        primary = "—"
+        sub = "No equity history for this window yet. Open unrealized: " + _fmt_signed_currency(total_unrealized) + "."
+    else:
+        start_eq = float(hist_df["equity_usd"].iloc[0] or 0.0)
+        end_eq = float(hist_df["equity_usd"].iloc[-1] or 0.0)
+        total_move = end_eq - start_eq
+        realized_est = total_move - total_unrealized
+        tone = _pl_tone_class(realized_est)
+        primary = _fmt_signed_currency(realized_est)
+        sub = (
+            f"Same window as chart ({period} / {timeframe}). "
+            f"Equity moved {_fmt_signed_currency(total_move)} ({_fmt_currency(start_eq)} → {_fmt_currency(end_eq)}). "
+            f"Open unrealized ({n} position{'s' if n != 1 else ''}): {_fmt_signed_currency(total_unrealized)}. "
+            "Closed-book estimate = equity change minus open unrealized (not a tax lot)."
+        )
+    start = ctx.daily_state.session_start_equity_usd
+    if start is not None:
+        session_pl = float(ctx.account.equity_usd) - float(start)
+        sub = f"{sub} Session net vs start equity: {_fmt_signed_currency(session_pl)}."
+    return (
+        "<div class='profit-total-strip'>"
+        "<div class='profit-total-label'>Total realized P/L (estimated)</div>"
+        f"<div class='profit-total-value {tone}'>{escape(primary)}</div>"
+        f"<div class='profit-total-sub'>{escape(sub)}</div>"
         "</div>"
     )
 
@@ -702,6 +784,28 @@ overview_tab, cycle_tab, learning_tab, universe_tab, raw_tab = st.tabs(
 )
 
 with overview_tab:
+    bar1, bar2, bar3, bar4, bar5 = st.columns([0.9, 0.9, 1.25, 0.7, 0.6])
+    period = bar1.selectbox("History period", ["1W", "1M", "3M", "6M", "1A"], index=1)
+    timeframe = bar2.selectbox("History timeframe", ["1D", "1H", "15Min"], index=0)
+    compare_mode = bar3.selectbox(
+        "Compare",
+        ["None", "Vs start (USD)", "Vs start (%)"],
+        index=0,
+        help="Overlay performance versus the beginning of the selected window.",
+    )
+    bar4.markdown("<div class='toolbar-label'>Actions</div>", unsafe_allow_html=True)
+    bar5.markdown("<div class='toolbar-label'>Actions</div>", unsafe_allow_html=True)
+    refresh_clicked = bar5.button("Refresh", use_container_width=True)
+    if refresh_clicked:
+        st.rerun()
+
+    hist_df: pd.DataFrame = pd.DataFrame()
+    hist_err: str | None = None
+    try:
+        hist_df = _history_df(ctx, period, timeframe)
+    except Exception as e:
+        hist_err = str(e)
+
     left, right = st.columns([2, 1])
     with left:
         st.markdown("<div class='dashboard-card'>", unsafe_allow_html=True)
@@ -710,42 +814,32 @@ with overview_tab:
             "<div class='section-subtle'>Trend + key risk stats</div></div>",
             unsafe_allow_html=True,
         )
-        p1, p2, p3, p4, p5 = st.columns([0.9, 0.9, 1.25, 0.7, 0.6])
-        period = p1.selectbox("History period", ["1W", "1M", "3M", "6M", "1A"], index=1)
-        timeframe = p2.selectbox("History timeframe", ["1D", "1H", "15Min"], index=0)
-        compare_mode = p3.selectbox(
-            "Compare",
-            ["None", "Vs start (USD)", "Vs start (%)"],
-            index=0,
-            help="Overlay performance versus the beginning of the selected window.",
-        )
-        p4.markdown("<div class='toolbar-label'>Actions</div>", unsafe_allow_html=True)
-        p5.markdown("<div class='toolbar-label'>Actions</div>", unsafe_allow_html=True)
-        refresh_clicked = p5.button("Refresh", use_container_width=True)
-        if refresh_clicked:
-            st.rerun()
-        try:
-            hist_df = _history_df(ctx, period, timeframe)
-            with p4:
-                if not hist_df.empty:
-                    export_df = hist_df.copy()
-                    export_df["time"] = export_df["time"].dt.strftime("%Y-%m-%d %H:%M:%S%z")
-                    st.download_button(
-                        "Export CSV",
-                        data=export_df.to_csv(index=False).encode("utf-8"),
-                        file_name=f"equity_history_{period}_{timeframe}.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
-                else:
-                    st.button("Export CSV", disabled=True, use_container_width=True)
+        p4, p5 = st.columns([0.7, 0.6])
+        with p4:
+            if hist_err is None and not hist_df.empty:
+                export_df = hist_df.copy()
+                export_df["time"] = export_df["time"].dt.strftime("%Y-%m-%d %H:%M:%S%z")
+                st.download_button(
+                    "Export CSV",
+                    data=export_df.to_csv(index=False).encode("utf-8"),
+                    file_name=f"equity_history_{period}_{timeframe}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            else:
+                st.button("Export CSV", disabled=True, use_container_width=True)
+        if hist_err:
+            st.warning(f"Could not fetch history: {hist_err}")
+        else:
             stats = _history_stats(hist_df, ctx.positions)
             st.markdown(_stats_strip_html(stats), unsafe_allow_html=True)
             _render_equity_chart(hist_df, compare_mode=compare_mode)
             if not hist_df.empty:
-                st.caption(f"Range P/L in selected window: {_fmt_signed_currency(hist_df['profit_loss_usd'].iloc[-1])}")
-        except Exception as e:
-            st.warning(f"Could not fetch history: {e}")
+                eq0 = float(hist_df["equity_usd"].iloc[0] or 0.0)
+                eq1 = float(hist_df["equity_usd"].iloc[-1] or 0.0)
+                st.caption(
+                    f"Range P/L in selected window (equity end − start): {_fmt_signed_currency(eq1 - eq0)}"
+                )
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
@@ -792,6 +886,10 @@ with overview_tab:
         ):
             scheduler_set_enabled(not toggle_enabled)
             st.rerun()
+        st.markdown(
+            _total_profits_strip_html(ctx, hist_df, period, timeframe, hist_err),
+            unsafe_allow_html=True,
+        )
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='dashboard-card'>", unsafe_allow_html=True)
