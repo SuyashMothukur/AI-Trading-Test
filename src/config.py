@@ -47,6 +47,16 @@ class Settings:
     alert_webhook_url: str
     alert_on_failure: bool
     trade_universe: list[str] | None
+    # Execution: minimum model confidence (raised dynamically by regime / learning).
+    min_confidence_execute: float
+    # Inverse-vol sizing for buys: scale notional so high-vol names take less risk per trade.
+    vol_target_daily: float
+    vol_target_mult_min: float
+    vol_target_mult_max: float
+    # When many resolved actions show negative global avg, raise confidence floor slightly.
+    learning_derisk_min_resolved: int
+    learning_derisk_avg_below: float
+    learning_derisk_floor_add: float
 
 
 def _bool(v: str | None, default: bool = False) -> bool:
@@ -114,6 +124,13 @@ def load_settings() -> Settings:
         alert_webhook_url=os.getenv("ALERT_WEBHOOK_URL", "").strip(),
         alert_on_failure=_bool(os.getenv("ALERT_ON_FAILURE"), default=False),
         trade_universe=universe,
+        min_confidence_execute=_float(os.getenv("MIN_CONFIDENCE_EXECUTE"), 0.55),
+        vol_target_daily=_float(os.getenv("VOL_TARGET_DAILY"), 0.015),
+        vol_target_mult_min=_float(os.getenv("VOL_TARGET_MULT_MIN"), 0.35),
+        vol_target_mult_max=_float(os.getenv("VOL_TARGET_MULT_MAX"), 1.3),
+        learning_derisk_min_resolved=_int(os.getenv("LEARNING_DERISK_MIN_RESOLVED"), 24),
+        learning_derisk_avg_below=_float(os.getenv("LEARNING_DERISK_AVG_BELOW"), -0.004),
+        learning_derisk_floor_add=_float(os.getenv("LEARNING_DERISK_FLOOR_ADD"), 0.05),
     )
 
 

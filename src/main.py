@@ -7,7 +7,11 @@ from typing import Any
 from .ai_advisor import propose_actions
 from .config import Settings, load_settings, validate_order_execution_allowed
 from .context import TradingContext, gather_trading_context
-from .decision_engine import evaluate_action_guardrails, regime_notional_multiplier
+from .decision_engine import (
+    evaluate_action_guardrails,
+    regime_notional_multiplier,
+    symbol_quant_row,
+)
 from .learning import record_cycle_and_actions
 from .position_state import load_position_state, save_position_state, sync_position_state
 from .reporting import write_daily_postmortem
@@ -66,6 +70,20 @@ def _sector_exposure_after_buy(
         if s == sector:
             current += float(pos.get("market_value_usd") or 0.0)
     return sector, current + buy_notional
+
+
+def _vol_target_adjust_notional(
+    notional: float, met: dict[str, Any] | None, s: Settings
+) -> float:
+    """Scale buy size inversely with recent daily volatility (risk targeting)."""
+    if not met:
+        return notional
+    vol = float(met.get("vol_10d") or 0.0)
+    if vol <= 1e-6:
+        return notional
+    raw = float(s.vol_target_daily) / max(vol, 1e-5)
+    mult = max(float(s.vol_target_mult_min), min(float(s.vol_target_mult_max), raw))
+    return notional * mult
 
 
 def _days_since_iso(ts: str | None) -> float | None:
@@ -182,6 +200,7 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
                 learning_feedback=ctx.user_payload.get("learning_feedback") or {},
                 quant_snapshot=ctx.user_payload.get("quant_snapshot") or {},
                 min_samples=s.learning_min_samples,
+                settings=s,
                 min_avg_volume_10d=s.min_avg_volume_10d,
             )
             if not g_ok:
@@ -192,6 +211,8 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
                 lines.append(f"Skip BUY {ticker}: need notional_usd.")
                 continue
             notional = float(n) * regime_mult
+            met = symbol_quant_row(ctx.user_payload.get("quant_snapshot") or {}, ticker)
+            notional = _vol_target_adjust_notional(notional, met, s)
             if notional < 20:
                 lines.append(f"BLOCK BUY {ticker}: regime-sized notional too small (${notional:.2f})")
                 continue
@@ -235,6 +256,7 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
                 learning_feedback=ctx.user_payload.get("learning_feedback") or {},
                 quant_snapshot=ctx.user_payload.get("quant_snapshot") or {},
                 min_samples=s.learning_min_samples,
+                settings=s,
                 min_avg_volume_10d=s.min_avg_volume_10d,
             )
             if not g_ok:

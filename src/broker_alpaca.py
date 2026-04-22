@@ -103,6 +103,72 @@ class AlpacaBroker:
                 ]
         return merged
 
+    def ui_chart_bars(self, symbol: str, ui_timeframe: str) -> tuple[list[dict[str, Any]], str | None]:
+        """
+        OHLCV bars for the Streamlit trading chart.
+        ui_timeframe: 1H | 1D | 1W | 1M (mapped to Alpaca bar sizes).
+        """
+        sym = (symbol or "").strip().upper()
+        if not sym:
+            return [], "Missing symbol"
+
+        tf_map: dict[str, tuple[TimeFrame, timedelta]] = {
+            "1H": (TimeFrame.Hour, timedelta(days=21)),
+            "1D": (TimeFrame.Day, timedelta(days=420)),
+            "1W": (TimeFrame.Week, timedelta(days=365 * 6)),
+            "1M": (TimeFrame.Month, timedelta(days=365 * 12)),
+        }
+        tf, lookback = tf_map.get(ui_timeframe, tf_map["1D"])
+        end = datetime.now(timezone.utc)
+        start = end - lookback
+
+        candidate_feeds: list[DataFeed | None] = [DataFeed.IEX, DataFeed.DELAYED_SIP, None]
+        last_err: Exception | None = None
+        barset = None
+        for feed in candidate_feeds:
+            try:
+                req = StockBarsRequest(
+                    symbol_or_symbols=sym,
+                    timeframe=tf,
+                    start=start,
+                    end=end,
+                    feed=feed,
+                )
+                barset = self._data.get_stock_bars(req)
+                break
+            except Exception as e:  # pragma: no cover - network/API fallback
+                last_err = e
+        if barset is None:
+            return [], (str(last_err) if last_err else "No bar data")
+
+        bars_list: list[Any] = []
+        if hasattr(barset, "data") and barset.data:
+            if sym in barset.data:
+                bars_list = list(barset.data[sym])
+            else:
+                for k, v in barset.data.items():
+                    if str(k).upper() == sym:
+                        bars_list = list(v)
+                        break
+                if not bars_list:
+                    try:
+                        bars_list = list(next(iter(barset.data.values())))
+                    except StopIteration:
+                        bars_list = []
+
+        out = [
+            {
+                "t": b.timestamp.isoformat(),
+                "o": float(b.open),
+                "h": float(b.high),
+                "l": float(b.low),
+                "c": float(b.close),
+                "v": float(b.volume or 0.0),
+            }
+            for b in bars_list
+        ]
+        return out, None
+
     def portfolio_history(
         self, period: str = "1M", timeframe: str = "1D"
     ) -> list[dict[str, Any]]:

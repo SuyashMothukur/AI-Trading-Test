@@ -1,0 +1,22 @@
+{
+  "day_utc": "2026-04-19",
+  "generated_at_utc": "2026-04-19T00:24:15.138051+00:00",
+  "actions_logged_today": 6,
+  "resolved_today": 0,
+  "pending_today": 6,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "SUBMIT SELL LLY qty=1.623377",
+    "SUBMIT SELL LMT qty=0.628691",
+    "SUBMIT SELL MDT qty=10.378114",
+    "SUBMIT SELL MNST qty=13.355925",
+    "GUARDRAIL BLOCK LHX: confidence 0.50 below execution floor 0.55",
+    "GUARDRAIL BLOCK LITE: confidence 0.50 below execution floor 0.55",
+    "Done. Orders submitted this run: 4"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}
