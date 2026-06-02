@@ -1,0 +1,24 @@
+{
+  "day_utc": "2026-05-23",
+  "generated_at_utc": "2026-05-23T02:03:25.581321+00:00",
+  "actions_logged_today": 11,
+  "resolved_today": 0,
+  "pending_today": 11,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "Skip SELL LHX: no position / size.",
+    "Skip SELL LITE: no position / size.",
+    "Skip SELL LLY: no position / size.",
+    "Skip SELL MDT: no position / size.",
+    "Skip SELL MNST: no position / size.",
+    "GUARDRAIL BLOCK PSX: confidence 0.58 below execution floor 0.68",
+    "GUARDRAIL BLOCK ON: confidence 0.56 below execution floor 0.68",
+    "GUARDRAIL BLOCK TSLA: confidence 0.52 below execution floor 0.68",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

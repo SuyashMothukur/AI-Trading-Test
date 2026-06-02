@@ -1,0 +1,20 @@
+{
+  "day_utc": "2026-05-20",
+  "generated_at_utc": "2026-05-20T04:13:21.978612+00:00",
+  "actions_logged_today": 11,
+  "resolved_today": 0,
+  "pending_today": 11,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "GUARDRAIL BLOCK MDT: confidence 0.64 below execution floor 0.65",
+    "GUARDRAIL BLOCK HPE: recovery mode: buy entries restricted to bullish regime (got choppy)",
+    "GUARDRAIL BLOCK HAL: confidence 0.61 below execution floor 0.65",
+    "GUARDRAIL BLOCK HUM: confidence 0.60 below execution floor 0.65",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

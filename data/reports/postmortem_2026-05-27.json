@@ -1,0 +1,20 @@
+{
+  "day_utc": "2026-05-27",
+  "generated_at_utc": "2026-05-27T04:14:01.697557+00:00",
+  "actions_logged_today": 12,
+  "resolved_today": 0,
+  "pending_today": 12,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "GUARDRAIL BLOCK HPE: buy cooldown (48h since last buy logged)",
+    "GUARDRAIL BLOCK HSIC: confidence 0.64 below execution floor 0.68",
+    "GUARDRAIL BLOCK KIM: confidence 0.61 below execution floor 0.68",
+    "GUARDRAIL BLOCK LULU: confidence 0.58 below execution floor 0.68",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

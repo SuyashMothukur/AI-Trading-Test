@@ -1,0 +1,18 @@
+{
+  "day_utc": "2026-05-15",
+  "generated_at_utc": "2026-05-15T00:08:20.404846+00:00",
+  "actions_logged_today": 2,
+  "resolved_today": 0,
+  "pending_today": 2,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "GUARDRAIL BLOCK CME: confidence 0.66 below execution floor 0.70",
+    "GUARDRAIL BLOCK COST: confidence 0.62 below execution floor 0.70",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import streamlit as st
 
+from ..broker_alpaca import AccountView
 from ..config import project_root
 from ..scheduler import (
     scheduler_set_enabled,
@@ -17,7 +18,7 @@ from ..scheduler import (
     start_scheduler_process,
     stop_scheduler_process,
 )
-from .formatting import fmt_currency, fmt_percent_plain, fmt_signed_currency
+from .formatting import fmt_currency, fmt_signed_currency
 
 if TYPE_CHECKING:
     from ..context import TradingContext
@@ -51,52 +52,70 @@ def _fmt_ts(iso: str | None) -> str:
 
 class RunHealthPanel:
     @staticmethod
-    def render(ctx: TradingContext, settings: Any) -> None:
+    def render(
+        ctx: TradingContext,
+        settings: Any,
+        *,
+        account: AccountView | None = None,
+        positions: list[dict[str, Any]] | None = None,
+    ) -> None:
+        acct = account or ctx.account
+        pos = positions if positions is not None else ctx.positions
+
         sched_info = scheduler_status()
         sched = sched_info.get("state") or {}
-        g = (ctx.user_payload.get("learning_feedback") or {}).get("global") or {}
-        wr = g.get("win_rate")
-        wr_f = float(wr) if wr is not None else None
-
         start = ctx.daily_state.session_start_equity_usd
-        daily_pnl = float(ctx.account.equity_usd) - float(start) if start else None
-        d_tone = "dot-good" if (daily_pnl or 0) > 0 else "dot-bad" if (daily_pnl or 0) < 0 else "dot-neutral"
+        session_pnl = float(acct.equity_usd) - float(start) if start else None
+        d_tone = "dot-good" if (session_pnl or 0) > 0 else "dot-bad" if (session_pnl or 0) < 0 else "dot-neutral"
 
-        n_pos = len(ctx.positions or [])
+        baseline = float(getattr(settings, "initial_equity_usd", 0) or 0)
+        net_pnl = float(acct.equity_usd) - baseline if baseline > 0 else None
+
+        n_pos = len(pos or [])
         last_run = _fmt_ts(str(sched.get("last_run_ts") or ""))
 
-        sr_txt = fmt_percent_plain(wr_f, decimals=1) if wr_f is not None else "—"
-        sr_tone = "dot-good" if wr_f is not None and wr_f >= 0.5 else "dot-warn" if wr_f is not None else "dot-neutral"
+        pulse_sub = "Live ops pulse · ~2s broker sync" if account is not None else "Live ops pulse"
 
         st.markdown("<div class='panel run-health-stack'>", unsafe_allow_html=True)
         st.markdown(
             "<div class='panel-head run-health-head'><div><p class='panel-title'>Run health</p>"
-            "<p class='panel-sub'>Live ops pulse</p></div></div>",
+            f"<p class='panel-sub'>{escape(pulse_sub)}</p></div></div>",
             unsafe_allow_html=True,
         )
 
-        if daily_pnl is None:
-            daily_cell = escape("—")
-        elif daily_pnl > 0:
-            daily_cell = f"<span class='pl-pos'>{escape(fmt_signed_currency(daily_pnl))}</span>"
-        elif daily_pnl < 0:
-            daily_cell = f"<span class='pl-neg'>{escape(fmt_signed_currency(daily_pnl))}</span>"
+        if session_pnl is None:
+            session_cell = escape("—")
+        elif session_pnl > 0:
+            session_cell = f"<span class='pl-pos'>{escape(fmt_signed_currency(session_pnl))}</span>"
+        elif session_pnl < 0:
+            session_cell = f"<span class='pl-neg'>{escape(fmt_signed_currency(session_pnl))}</span>"
         else:
-            daily_cell = escape(fmt_signed_currency(daily_pnl))
+            session_cell = escape(fmt_signed_currency(session_pnl))
+
+        if net_pnl is None:
+            net_cell = escape("—")
+        elif net_pnl > 0:
+            net_cell = f"<span class='pl-pos'>{escape(fmt_signed_currency(net_pnl))}</span>"
+        elif net_pnl < 0:
+            net_cell = f"<span class='pl-neg'>{escape(fmt_signed_currency(net_pnl))}</span>"
+        else:
+            net_cell = escape(fmt_signed_currency(net_pnl))
+        net_tone = "dot-good" if (net_pnl or 0) > 0 else "dot-bad" if (net_pnl or 0) < 0 else "dot-neutral"
+
         st.markdown(
             "<div class='health-cards'>"
-            f"<div class='health-card'><div class='row'><span class='health-k'>Daily P/L</span>"
+            f"<div class='health-card'><div class='row'><span class='health-k'>Net P/L</span>"
+            f"<span class='health-dot {net_tone}'></span></div>"
+            f"<div class='health-v'>{net_cell}</div></div>"
+            f"<div class='health-card'><div class='row'><span class='health-k'>Session P/L</span>"
             f"<span class='health-dot {d_tone}'></span></div>"
-            f"<div class='health-v'>{daily_cell}</div></div>"
+            f"<div class='health-v'>{session_cell}</div></div>"
             f"<div class='health-card'><div class='row'><span class='health-k'>Open positions</span>"
             f"<span class='health-dot dot-neutral'></span></div>"
             f"<div class='health-v'>{n_pos}</div></div>"
             f"<div class='health-card'><div class='row'><span class='health-k'>Last run</span>"
             f"<span class='health-dot dot-neutral'></span></div>"
             f"<div class='health-v' style='font-size:0.82rem'>{escape(last_run)}</div></div>"
-            f"<div class='health-card'><div class='row'><span class='health-k'>Win rate</span>"
-            f"<span class='health-dot {sr_tone}'></span></div>"
-            f"<div class='health-v'>{escape(sr_txt)}</div></div>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -105,13 +124,19 @@ class RunHealthPanel:
         sched_on = bool(sched.get("enabled", True))
         proc_on = bool(sched_info.get("running"))
         mode = "Paper" if settings.alpaca_paper else "Live"
+        net_span = (
+            f"<span><b>Net P/L</b> {escape(fmt_signed_currency(net_pnl))}</span>"
+            if net_pnl is not None
+            else ""
+        )
         st.markdown(
             "<div class='status-line'>"
             f"<span><b>Bot</b> {'<span class=\"pill pill-on\">ON</span>' if exec_on else '<span class=\"pill pill-off\">EXEC OFF</span>'}</span>"
             f"<span><b>Mode</b> {escape(mode)}</span>"
             f"<span><b>Scheduler</b> {'<span class=\"pill pill-on\">RUNNING</span>' if proc_on else '<span class=\"pill pill-warn\">STOPPED</span>'} "
             f"{'· auto' if sched_on else '· auto paused'}</span>"
-            f"<span><b>Equity</b> {escape(fmt_currency(ctx.account.equity_usd))}</span>"
+            f"<span><b>Equity</b> {escape(fmt_currency(acct.equity_usd))}</span>"
+            f"{net_span}"
             "</div>",
             unsafe_allow_html=True,
         )

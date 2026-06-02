@@ -6,7 +6,7 @@
   },
   "LLY": {
     "opened_at": "2026-04-16T03:36:06.940420+00:00",
-    "high_watermark": 927.03,
+    "high_watermark": 1127.5,
     "sector": ""
   },
   "LMT": {
@@ -21,12 +21,12 @@
   },
   "MNST": {
     "opened_at": "2026-04-16T03:36:06.940430+00:00",
-    "high_watermark": 76.82,
+    "high_watermark": 89.49,
     "sector": ""
   },
   "LITE": {
     "opened_at": "2026-04-16T03:37:16.302838+00:00",
-    "high_watermark": 901.21,
+    "high_watermark": 1062.0,
     "sector": ""
   }
 }

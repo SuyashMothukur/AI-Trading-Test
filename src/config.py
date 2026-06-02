@@ -57,6 +57,44 @@ class Settings:
     learning_derisk_min_resolved: int
     learning_derisk_avg_below: float
     learning_derisk_floor_add: float
+    # Recovery controls
+    bullish_only_buys: bool
+    weak_buy_blocklist: list[str]
+    # Dashboard: compare live equity to this funded / starting baseline (USD).
+    initial_equity_usd: float
+    # Churn control: minimum hours between BUY proposals on the same ticker.
+    symbol_cooldown_hours: int
+    # Auto-add tickers to buy blocklist when learning prior is weak enough.
+    auto_blocklist_min_samples: int
+    auto_blocklist_avg_below: float
+    # Buys require 5D momentum above this threshold (0 = non-negative only).
+    min_mom5_for_buy: float
+    # Fetch this many symbol candidates before quant-ranking down to max_context_symbols.
+    context_candidate_multiplier: int
+    # Cap model plan size and new buys per cycle.
+    max_plan_actions: int
+    max_buys_per_cycle: int
+    # Force exit when position is this far underwater and momentum is weak.
+    underwater_exit_pct: float
+    # Pause all buys when rolling expectancy is below this (requires enough samples).
+    block_buys_roll_exp_below: float
+    block_buys_roll_min_samples: int
+    # Trend filters (momentum bots: align 5D + 10D before entry).
+    min_mom10_for_buy: float
+    require_trend_alignment: bool
+    # Discretionary SELL dead zone (journal: small exits have negative expectancy).
+    sell_dead_zone_min_pct: float
+    sell_dead_zone_max_pct: float
+    sell_take_profit_min_pct: float
+    sell_stop_min_pct: float
+    sell_mom5_break_pct: float
+    # Risk per trade + ATR stops (industry standard 1–2% risk, 2–3x ATR stop).
+    risk_per_trade_pct: float
+    use_atr_stops: bool
+    atr_stop_mult: float
+    use_fractional_kelly: bool
+    max_buys_bullish: int
+    max_buys_non_bullish: int
 
 
 def _bool(v: str | None, default: bool = False) -> bool:
@@ -75,6 +113,12 @@ def _int(v: str | None, default: int) -> int:
     if v is None or v.strip() == "":
         return default
     return int(v)
+
+
+def _csv_symbols(v: str | None) -> list[str]:
+    if not v or not v.strip():
+        return []
+    return [s.strip().upper() for s in v.split(",") if s.strip()]
 
 
 def load_settings() -> Settings:
@@ -131,6 +175,32 @@ def load_settings() -> Settings:
         learning_derisk_min_resolved=_int(os.getenv("LEARNING_DERISK_MIN_RESOLVED"), 24),
         learning_derisk_avg_below=_float(os.getenv("LEARNING_DERISK_AVG_BELOW"), -0.004),
         learning_derisk_floor_add=_float(os.getenv("LEARNING_DERISK_FLOOR_ADD"), 0.05),
+        bullish_only_buys=_bool(os.getenv("BULLISH_ONLY_BUYS"), default=False),
+        weak_buy_blocklist=_csv_symbols(os.getenv("WEAK_BUY_BLOCKLIST")),
+        initial_equity_usd=_float(os.getenv("INITIAL_EQUITY_USD"), 100_000.0),
+        symbol_cooldown_hours=_int(os.getenv("SYMBOL_COOLDOWN_HOURS"), 48),
+        auto_blocklist_min_samples=_int(os.getenv("AUTO_BLOCKLIST_MIN_SAMPLES"), 5),
+        auto_blocklist_avg_below=_float(os.getenv("AUTO_BLOCKLIST_AVG_BELOW"), -0.005),
+        min_mom5_for_buy=_float(os.getenv("MIN_MOM5_FOR_BUY"), 0.0),
+        context_candidate_multiplier=_int(os.getenv("CONTEXT_CANDIDATE_MULTIPLIER"), 4),
+        max_plan_actions=_int(os.getenv("MAX_PLAN_ACTIONS"), 10),
+        max_buys_per_cycle=_int(os.getenv("MAX_BUYS_PER_CYCLE"), 2),
+        underwater_exit_pct=_float(os.getenv("UNDERWATER_EXIT_PCT"), 0.035),
+        block_buys_roll_exp_below=_float(os.getenv("BLOCK_BUYS_ROLL_EXP_BELOW"), -0.008),
+        block_buys_roll_min_samples=_int(os.getenv("BLOCK_BUYS_ROLL_MIN_SAMPLES"), 15),
+        min_mom10_for_buy=_float(os.getenv("MIN_MOM10_FOR_BUY"), 0.0),
+        require_trend_alignment=_bool(os.getenv("REQUIRE_TREND_ALIGNMENT"), default=True),
+        sell_dead_zone_min_pct=_float(os.getenv("SELL_DEAD_ZONE_MIN_PCT"), -0.015),
+        sell_dead_zone_max_pct=_float(os.getenv("SELL_DEAD_ZONE_MAX_PCT"), 0.025),
+        sell_take_profit_min_pct=_float(os.getenv("SELL_TAKE_PROFIT_MIN_PCT"), 0.03),
+        sell_stop_min_pct=_float(os.getenv("SELL_STOP_MIN_PCT"), -0.02),
+        sell_mom5_break_pct=_float(os.getenv("SELL_MOM5_BREAK_PCT"), -0.008),
+        risk_per_trade_pct=_float(os.getenv("RISK_PER_TRADE_PCT"), 0.01),
+        use_atr_stops=_bool(os.getenv("USE_ATR_STOPS"), default=True),
+        atr_stop_mult=_float(os.getenv("ATR_STOP_MULT"), 2.5),
+        use_fractional_kelly=_bool(os.getenv("USE_FRACTIONAL_KELLY"), default=True),
+        max_buys_bullish=_int(os.getenv("MAX_BUYS_BULLISH"), 2),
+        max_buys_non_bullish=_int(os.getenv("MAX_BUYS_NON_BULLISH"), 1),
     )
 
 

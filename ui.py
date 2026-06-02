@@ -6,6 +6,7 @@ Run from repo root:
 from __future__ import annotations
 
 import json
+import math
 import time
 from datetime import datetime
 from html import escape
@@ -20,8 +21,8 @@ from src.dashboard.history import portfolio_history_df
 from src.dashboard.layout import DashboardLayout
 from src.dashboard.styles import inject_chart_chrome_last, inject_dashboard_styles
 from src.dashboard.vega_chrome_nuke import inject_vega_chrome_nuke
-from src.decision_engine import evaluate_action_guardrails
-from src.learning import build_learning_report
+from src.decision_engine import confidence_floor_status, evaluate_action_guardrails
+from src.learning import annotate_actions_with_live_mtm, build_learning_report, load_actions
 from src.main import execute_plan, propose_plan
 from src.risk import validate_buy, validate_sell
 from src.universe import fetch_sp500_constituents
@@ -140,6 +141,107 @@ def _render_trace(trace: list[dict[str, str]]) -> None:
         )
 
 
+def _learning_pct_cell(x: Any) -> str:
+    try:
+        if pd.isna(x):
+            return "-"
+    except TypeError:
+        pass
+    if x is None:
+        return "-"
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return "-"
+    if math.isnan(v):
+        return "-"
+    return f"{v * 100:.2f}%"
+
+
+def _ensure_cols(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    for c in cols:
+        if c not in df.columns:
+            df[c] = pd.NA
+    return df
+
+
+@st.fragment(run_every=25)
+def _learning_live_action_tables_fragment(settings: Any, ctx: TradingContext) -> None:
+    rep = build_learning_report(min_samples=settings.learning_min_samples)
+    recent_rows = rep.get("recent_resolved_actions") or []
+    st.subheader("Recent resolved actions")
+    st.caption(
+        "At resolve: frozen score stored in the journal. Live MTM: current mark vs "
+        "`decision_price` (position quote when held, else last hourly bar, else daily close)."
+    )
+    resolved_cols = [
+        "resolved_ts",
+        "ticker",
+        "side",
+        "confidence_0_to_1",
+        "at_resolve_pct",
+        "live_mtm_pct",
+        "live_px",
+        "rationale",
+    ]
+    if recent_rows:
+        live_rows, live_err = annotate_actions_with_live_mtm(ctx.broker, recent_rows)
+        if live_err:
+            st.warning(f"Live MTM unavailable: {live_err}")
+        df = _ensure_cols(
+            pd.DataFrame(live_rows),
+            [
+                "resolved_ts",
+                "ticker",
+                "side",
+                "confidence_0_to_1",
+                "live_px",
+                "rationale",
+                "realized_return_pct",
+                "live_return_pct",
+            ],
+        )
+        df["at_resolve_pct"] = df["realized_return_pct"].map(_learning_pct_cell)
+        df["live_mtm_pct"] = df["live_return_pct"].map(_learning_pct_cell)
+        st.dataframe(df[resolved_cols], use_container_width=True, hide_index=True)
+    else:
+        st.caption("No resolved actions yet. Let cycles run for at least the evaluation delay window.")
+
+    pending_rows = [r for r in load_actions(limit=80) if r.get("status") == "pending"]
+    st.subheader("Pending actions (live MTM)")
+    pending_cols = [
+        "ts",
+        "ticker",
+        "side",
+        "confidence_0_to_1",
+        "decision_price",
+        "live_px",
+        "live_mtm_pct",
+        "rationale",
+    ]
+    if pending_rows:
+        pend_live, perr = annotate_actions_with_live_mtm(ctx.broker, pending_rows[:40])
+        if perr:
+            st.warning(f"Live MTM unavailable: {perr}")
+        pdf = _ensure_cols(
+            pd.DataFrame(pend_live),
+            [
+                "ts",
+                "ticker",
+                "side",
+                "confidence_0_to_1",
+                "decision_price",
+                "live_px",
+                "rationale",
+                "live_return_pct",
+            ],
+        )
+        pdf["live_mtm_pct"] = pdf["live_return_pct"].map(_learning_pct_cell)
+        st.dataframe(pdf[pending_cols], use_container_width=True, hide_index=True)
+    else:
+        st.caption("No pending actions.")
+
+
 def _latest_postmortem() -> dict[str, Any] | None:
     d = project_root() / "data" / "reports"
     if not d.exists():
@@ -168,6 +270,48 @@ def _format_uptime(total_seconds: float) -> str:
         m, sec = divmod(s, 60)
         return f"{m}m {sec:02d}s"
     return f"{s}s"
+
+
+def _adaptive_floor_pill_html(floor_info: dict[str, Any]) -> str:
+    eff = float(floor_info.get("effective_floor") or 0.0)
+    base = float(floor_info.get("base_floor") or 0.0)
+    regime = str(floor_info.get("regime") or "unknown")
+    roll_exp = floor_info.get("rolling_expectancy_pct")
+    roll_n = int(floor_info.get("rolling_samples") or 0)
+    derisk = bool(floor_info.get("rolling_derisk_active"))
+    roll_txt = f"{float(roll_exp) * 100:+.2f}%" if roll_exp is not None else "n/a"
+
+    if derisk or eff >= 0.72:
+        tone = "red"
+        state = "Defensive"
+    elif eff >= max(base + 0.03, 0.60):
+        tone = "amber"
+        state = "Cautious"
+    else:
+        tone = "green"
+        state = "Normal"
+
+    return (
+        "<style>"
+        ".risk-pill-wrap{margin:6px 0 10px 0;}"
+        ".risk-pill{display:flex;align-items:center;justify-content:space-between;gap:12px;"
+        "padding:10px 12px;border-radius:12px;border:1px solid rgba(120,140,190,0.28);"
+        "background:rgba(10,18,34,0.65);font-size:0.8rem;line-height:1.35;}"
+        ".risk-pill-badge{font-size:0.68rem;letter-spacing:.08em;text-transform:uppercase;"
+        "font-weight:700;padding:4px 9px;border-radius:999px;border:1px solid transparent;}"
+        ".risk-pill-badge.green{color:#86efac;background:rgba(34,197,94,0.12);border-color:rgba(34,197,94,0.32);}"
+        ".risk-pill-badge.amber{color:#fcd34d;background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.34);}"
+        ".risk-pill-badge.red{color:#fda4af;background:rgba(244,63,94,0.12);border-color:rgba(244,63,94,0.34);}"
+        ".risk-pill-meta{color:#9fb0cc;font-variant-numeric:tabular-nums;}"
+        ".risk-pill-main{color:#dbe9ff;}"
+        "</style>"
+        "<div class='risk-pill-wrap'>"
+        "<div class='risk-pill'>"
+        f"<div class='risk-pill-main'><b>Adaptive confidence floor (buy): {eff:.2f}</b> "
+        f"(base {base:.2f}) · regime={escape(regime)} · exp20={escape(roll_txt)} (n={roll_n})</div>"
+        f"<div class='risk-pill-badge {tone}'>{state}</div>"
+        "</div></div>"
+    )
 
 
 @st.fragment(run_every=1)
@@ -225,6 +369,17 @@ if kill_switch_active():
 if ctx.blocked_reason:
     st.error(ctx.blocked_reason)
 
+lfb = ctx.user_payload.get("learning_feedback") or {}
+qsn = ctx.user_payload.get("quant_snapshot") or {}
+floor_info = confidence_floor_status(
+    learning_feedback=lfb,
+    quant_snapshot=qsn,
+    settings=settings,
+    side="buy",
+)
+roll_exp = floor_info.get("rolling_expectancy_pct")
+st.markdown(_adaptive_floor_pill_html(floor_info), unsafe_allow_html=True)
+
 can_trade = ctx.blocked_reason is None
 
 overview_tab, cycle_tab, learning_tab, universe_tab, raw_tab = st.tabs(
@@ -267,12 +422,11 @@ with overview_tab:
         if st.button("Refresh", use_container_width=True, key="dash_eq_refresh"):
             st.rerun()
 
-    DashboardLayout.render_overview_body(
-        ctx,
-        settings,
-        hist_df=hist_df,
-        hist_err=hist_err,
-    )
+    # Portfolio window for charts + metric strip baseline; cloned so fragment reruns can't mutate it.
+    st.session_state["_dash_hist_df"] = hist_df.copy() if not hist_df.empty else hist_df
+    st.session_state["_dash_hist_err"] = hist_err
+
+    DashboardLayout.render_overview_body(ctx, settings)
 
 with cycle_tab:
     c1, c2 = st.columns([1, 1])
@@ -340,7 +494,12 @@ with learning_tab:
     a, b, c, d = st.columns(4)
     a.metric("Resolved actions", int(g.get("resolved_actions") or 0))
     b.metric("Pending actions", int(g.get("pending_actions") or 0))
-    c.metric("Win rate", f"{(float(g.get('win_rate') or 0)*100):.1f}%")
+    wr_ex = g.get("win_rate_ex_breakeven")
+    wr_raw = g.get("win_rate")
+    if wr_ex is not None:
+        c.metric("Win rate (ex 0%)", f"{float(wr_ex)*100:.1f}%")
+    else:
+        c.metric("Win rate", f"{(float(wr_raw or 0)*100):.1f}%")
     d.metric("Avg return/action", f"{(float(g.get('avg_return_pct') or 0)*100):.2f}%")
 
     e1, e2, e3, e4 = st.columns(4)
@@ -366,13 +525,7 @@ with learning_tab:
         worst = report.get("worst_symbols") or []
         st.dataframe(pd.DataFrame(worst), use_container_width=True, hide_index=True)
 
-    st.subheader("Recent resolved actions")
-    recent = report.get("recent_resolved_actions") or []
-    if recent:
-        view = pd.DataFrame(recent)[["resolved_ts", "ticker", "side", "confidence_0_to_1", "realized_return_pct", "rationale"]]
-        st.dataframe(view, use_container_width=True, hide_index=True)
-    else:
-        st.caption("No resolved actions yet. Let cycles run for at least the evaluation delay window.")
+    _learning_live_action_tables_fragment(settings, ctx)
 
     b1, b2, b3 = st.columns(3)
     with b1:

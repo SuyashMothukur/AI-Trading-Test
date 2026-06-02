@@ -69,9 +69,80 @@ def _parse_ts(ts: str | None) -> datetime | None:
     if not ts:
         return None
     try:
-        return datetime.fromisoformat(ts)
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _rolling_expectancy(
+    returns: list[float], *, lookback: int = 20
+) -> dict[str, float | int | None]:
+    if not returns:
+        return {"lookback": lookback, "samples": 0, "win_rate": None, "expectancy_pct": None}
+    vals = returns[-lookback:]
+    wins = [v for v in vals if v > 0]
+    losses = [v for v in vals if v < 0]
+    wr = (len(wins) / len(vals)) if vals else None
+    avg_win = (sum(wins) / len(wins)) if wins else 0.0
+    avg_loss_abs = (abs(sum(losses) / len(losses)) if losses else 0.0)
+    exp = None
+    if wr is not None:
+        exp = wr * avg_win - (1.0 - wr) * avg_loss_abs
+    return {
+        "lookback": lookback,
+        "samples": len(vals),
+        "win_rate": wr,
+        "expectancy_pct": exp,
+    }
+
+
+def _bucket_stats(rows_in: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    buckets: dict[str, list[float]] = defaultdict(list)
+    for r in rows_in:
+        k = str(r.get(key) or "unknown")
+        buckets[k].append(float(r.get("realized_return_pct") or 0.0))
+    out: list[dict[str, Any]] = []
+    for k, vals in buckets.items():
+        wins = sum(1 for v in vals if v > 0)
+        out.append(
+            {
+                key: k,
+                "samples": len(vals),
+                "avg_return_pct": (sum(vals) / len(vals)) if vals else None,
+                "win_rate": (wins / len(vals)) if vals else None,
+            }
+        )
+    return sorted(out, key=lambda x: x.get("avg_return_pct") or -9, reverse=True)
+
+
+def _fills_return_pct_for_action(
+    *,
+    row: dict[str, Any],
+    fills: list[dict[str, Any]],
+) -> tuple[float | None, str | None]:
+    """
+    Try to score action using actual account fill activity.
+    For a BUY action: use weighted average price of subsequent SELL fills.
+    For a SELL action: use weighted average price of subsequent BUY fills.
+    """
+    side = str(row.get("side") or "").lower()
+    if side not in {"buy", "sell"}:
+        return None, None
+    px0 = float(row.get("decision_price") or 0.0)
+    if px0 <= 0:
+        return None, None
+    target_side = "sell" if side == "buy" else "buy"
+    rel = [f for f in fills if str(f.get("side") or "").lower() == target_side and float(f.get("qty") or 0.0) > 0]
+    if not rel:
+        return None, None
+    qty = sum(float(f.get("qty") or 0.0) for f in rel)
+    if qty <= 0:
+        return None, None
+    px = sum(float(f.get("price") or 0.0) * float(f.get("qty") or 0.0) for f in rel) / qty
+    raw_ret = (px - px0) / px0
+    if side == "sell":
+        raw_ret = -raw_ret
+    return raw_ret, "fills"
 
 
 def record_cycle_and_actions(
@@ -135,6 +206,64 @@ def record_cycle_and_actions(
     return cycle_id
 
 
+def mtm_return_pct_from_decision(
+    *,
+    side: str,
+    decision_price: float,
+    latest_price: float,
+) -> float | None:
+    """Same sign convention as mark-to-market resolution in evaluate_pending_actions."""
+    if decision_price <= 0 or latest_price <= 0:
+        return None
+    raw_ret = (float(latest_price) - float(decision_price)) / float(decision_price)
+    if str(side or "").lower() == "sell":
+        raw_ret = -raw_ret
+    return raw_ret
+
+
+def annotate_actions_with_live_mtm(
+    broker: Any,
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], str | None]:
+    """
+    Non-persistent live mark-to-market vs decision_price for UI.
+    Adds live_return_pct, live_px, live_as_of_utc; does not mutate journal rows.
+    """
+    if not rows:
+        return [], None
+    tickers: list[str] = []
+    for r in rows:
+        t = str(r.get("ticker") or "").upper()
+        if t:
+            tickers.append(t)
+    try:
+        px_map = broker.latest_mark_prices(tickers)
+    except Exception as e:
+        return [{**dict(r), "live_return_pct": None, "live_px": None, "live_as_of_utc": None} for r in rows], str(e)
+    now_iso = _now().isoformat()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        base = dict(r)
+        sym = str(base.get("ticker") or "").upper()
+        px0 = base.get("decision_price")
+        try:
+            dpx = float(px0) if px0 is not None else 0.0
+        except (TypeError, ValueError):
+            dpx = 0.0
+        lpx = float(px_map.get(sym) or 0.0)
+        side = str(base.get("side") or "")
+        live_ret = (
+            mtm_return_pct_from_decision(side=side, decision_price=dpx, latest_price=lpx)
+            if dpx > 0 and lpx > 0
+            else None
+        )
+        base["live_return_pct"] = live_ret
+        base["live_px"] = lpx if lpx > 0 else None
+        base["live_as_of_utc"] = now_iso
+        out.append(base)
+    return out, None
+
+
 def evaluate_pending_actions(
     *,
     broker: Any,
@@ -157,17 +286,35 @@ def evaluate_pending_actions(
             continue
         if now < created + timedelta(hours=eval_delay_hours):
             continue
+        raw_ret: float | None = None
+        method: str | None = None
         try:
-            bars = broker.recent_daily_bars([ticker], days=7).get(ticker) or []
+            fills = broker.account_fills(symbol=ticker, after=created, until=now, page_size=100)
         except Exception:
-            continue
-        if not bars:
-            continue
-        latest = float(bars[-1]["c"])
-        raw_ret = (latest - float(px0)) / float(px0)
-        if str(row.get("side")) == "sell":
-            raw_ret = -raw_ret
+            fills = []
+        raw_ret, method = _fills_return_pct_for_action(row=row, fills=fills)
+        if raw_ret is None:
+            latest: float | None = None
+            try:
+                px_map = broker.latest_mark_prices([ticker])
+                latest = float(px_map.get(ticker) or 0.0) or None
+                method = "mark_to_market_live"
+            except Exception:
+                latest = None
+            if latest is None:
+                try:
+                    bars = broker.recent_daily_bars([ticker], days=7).get(ticker) or []
+                except Exception:
+                    continue
+                if not bars:
+                    continue
+                latest = float(bars[-1]["c"])
+                method = "mark_to_market_daily"
+            raw_ret = (latest - float(px0)) / float(px0)
+            if str(row.get("side")) == "sell":
+                raw_ret = -raw_ret
         row["realized_return_pct"] = raw_ret
+        row["evaluation_method"] = method
         row["status"] = "resolved"
         row["resolved_ts"] = now.isoformat()
         resolved += 1
@@ -184,8 +331,16 @@ def build_learning_snapshot(min_samples: int) -> dict[str, Any]:
             "symbol_priors": [],
             "notes": "No resolved action outcomes yet.",
         }
-    global_avg = sum(float(r["realized_return_pct"]) for r in resolved) / len(resolved)
-    wins = sum(1 for r in resolved if float(r["realized_return_pct"]) > 0)
+    returns = [float(r["realized_return_pct"]) for r in resolved]
+    global_avg = sum(returns) / len(returns)
+    wins = sum(1 for v in returns if v > 0)
+    losses = sum(1 for v in returns if v < 0)
+    gross_win = sum(v for v in returns if v > 0)
+    gross_loss = abs(sum(v for v in returns if v < 0))
+    profit_factor = (gross_win / gross_loss) if gross_loss > 1e-12 else None
+    breakeven = len(resolved) - wins - losses
+    win_rate_ex_be = (wins / (wins + losses)) if (wins + losses) > 0 else None
+    rolling20 = _rolling_expectancy(returns, lookback=20)
 
     by_symbol: dict[str, list[float]] = defaultdict(list)
     for r in resolved:
@@ -206,15 +361,44 @@ def build_learning_snapshot(min_samples: int) -> dict[str, Any]:
             }
         )
     priors.sort(key=lambda x: (x["confidence"], x["avg_return_pct"]), reverse=True)
+    by_side = _bucket_stats(resolved, "side")
+    by_regime = _bucket_stats(resolved, "regime_at_decision")
+    by_horizon = _bucket_stats(resolved, "horizon")
     return {
         "global": {
             "resolved_actions": len(resolved),
             "avg_return_pct": global_avg,
             "win_rate": wins / len(resolved),
+            "win_rate_ex_breakeven": win_rate_ex_be,
+            "breakeven_count": breakeven,
+            "profit_factor": profit_factor,
+            "rolling_20": rolling20,
         },
         "symbol_priors": priors[:40],
+        "slice_priors": {
+            "by_side": by_side,
+            "by_regime": by_regime,
+            "by_horizon": by_horizon,
+        },
         "notes": "Use high/medium priors as soft ranking hints, never as hard guarantees.",
     }
+
+
+def recent_buy_within_hours(ticker: str, hours: float) -> bool:
+    """True if a BUY was logged for this ticker within the last `hours`."""
+    if hours <= 0:
+        return False
+    sym = ticker.upper()
+    cutoff = _now() - timedelta(hours=hours)
+    for row in _read_jsonl(_actions_path()):
+        if str(row.get("ticker") or "").upper() != sym:
+            continue
+        if str(row.get("side") or "").lower() != "buy":
+            continue
+        ts = _parse_ts(row.get("ts"))
+        if ts and ts >= cutoff:
+            return True
+    return False
 
 
 def load_actions(limit: int | None = None) -> list[dict[str, Any]]:
@@ -267,23 +451,6 @@ def build_learning_report(min_samples: int = 3) -> dict[str, Any]:
     if avg_win is not None and avg_loss_abs:
         payoff_ratio = avg_win / avg_loss_abs if avg_loss_abs > 0 else None
 
-    def _bucket_stats(rows_in: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
-        buckets: dict[str, list[float]] = defaultdict(list)
-        for r in rows_in:
-            k = str(r.get(key) or "unknown")
-            buckets[k].append(float(r.get("realized_return_pct") or 0.0))
-        out: list[dict[str, Any]] = []
-        for k, vals in buckets.items():
-            wins = sum(1 for v in vals if v > 0)
-            out.append(
-                {
-                    key: k,
-                    "samples": len(vals),
-                    "avg_return_pct": (sum(vals) / len(vals)) if vals else None,
-                    "win_rate": (wins / len(vals)) if vals else None,
-                }
-            )
-        return sorted(out, key=lambda x: x.get("avg_return_pct") or -9, reverse=True)
     return {
         "global": {
             **(snapshot.get("global") or {}),

@@ -1,0 +1,20 @@
+{
+  "day_utc": "2026-05-06",
+  "generated_at_utc": "2026-05-06T00:09:05.964758+00:00",
+  "actions_logged_today": 4,
+  "resolved_today": 0,
+  "pending_today": 4,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "GUARDRAIL BLOCK ROK: confidence 0.63 below execution floor 0.73",
+    "GUARDRAIL BLOCK RJF: confidence 0.56 below execution floor 0.73",
+    "GUARDRAIL BLOCK SBUX: confidence 0.55 below execution floor 0.73",
+    "GUARDRAIL BLOCK SCHW: confidence 0.52 below execution floor 0.73",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

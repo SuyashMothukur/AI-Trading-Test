@@ -90,7 +90,8 @@ class AlpacaBroker:
             if barset is None:
                 raise RuntimeError(f"Failed to fetch bars for chunk: {last_err}") from last_err
             for sym, bars in barset.data.items():
-                merged[sym] = [
+                key = str(sym).upper()
+                merged[key] = [
                     {
                         "t": b.timestamp.isoformat(),
                         "o": b.open,
@@ -102,6 +103,73 @@ class AlpacaBroker:
                     for b in bars[-10:]
                 ]
         return merged
+
+    def latest_mark_prices(self, symbols: list[str]) -> dict[str, float]:
+        """
+        Best-effort reference prices for live MTM vs a past decision_price.
+        Uses open-position current_price when available, else last completed hourly bar close,
+        else last daily bar close.
+        """
+        want = sorted({str(s or "").strip().upper() for s in symbols if str(s or "").strip()})
+        if not want:
+            return {}
+        out: dict[str, float] = {}
+        for p in self._trade.get_all_positions():
+            sym = str(p.symbol or "").upper()
+            if sym in want:
+                px = _f(p.current_price)
+                if px > 0:
+                    out[sym] = px
+        missing = [s for s in want if s not in out or out.get(s, 0) <= 0]
+        if not missing:
+            return out
+
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=7)
+        candidate_feeds: list[DataFeed | None] = [DataFeed.IEX, DataFeed.DELAYED_SIP, None]
+        chunk_size = 50
+        for i in range(0, len(missing), chunk_size):
+            chunk = missing[i : i + chunk_size]
+            barset = None
+            last_err: Exception | None = None
+            for feed in candidate_feeds:
+                try:
+                    req = StockBarsRequest(
+                        symbol_or_symbols=chunk,
+                        timeframe=TimeFrame.Hour,
+                        start=start,
+                        end=end,
+                        feed=feed,
+                    )
+                    barset = self._data.get_stock_bars(req)
+                    break
+                except Exception as e:  # pragma: no cover - network/API fallback
+                    last_err = e
+            if barset is None or not getattr(barset, "data", None):
+                continue
+            for sym, bars in barset.data.items():
+                sym_u = str(sym).upper()
+                bl = list(bars)
+                if not bl:
+                    continue
+                c = _f(bl[-1].close)
+                if c > 0:
+                    out[sym_u] = c
+
+        still = [s for s in want if s not in out or out.get(s, 0) <= 0]
+        if still:
+            try:
+                daily = self.recent_daily_bars(still, days=10)
+            except Exception:
+                daily = {}
+            for sym in still:
+                bars = daily.get(sym) or []
+                if not bars:
+                    continue
+                c = _f(bars[-1].get("c"))
+                if c > 0:
+                    out[str(sym).upper()] = c
+        return {k: v for k, v in out.items() if k in want and v > 0}
 
     def ui_chart_bars(self, symbol: str, ui_timeframe: str) -> tuple[list[dict[str, Any]], str | None]:
         """
@@ -184,6 +252,49 @@ class AlpacaBroker:
                     "equity_usd": float(history.equity[i]),
                     "profit_loss_usd": float(history.profit_loss[i]),
                     "profit_loss_pct": float(pct[i]) if i < len(pct) and pct[i] is not None else None,
+                }
+            )
+        return out
+
+    def account_fills(
+        self,
+        *,
+        symbol: str | None = None,
+        after: datetime | None = None,
+        until: datetime | None = None,
+        page_size: int = 100,
+    ) -> list[dict[str, Any]]:
+        """
+        Raw account FILL activities from Trading API.
+        Used by learning to score outcomes from execution prices when possible.
+        """
+        params: dict[str, Any] = {
+            "direction": "asc",
+            "page_size": max(1, min(int(page_size), 100)),
+        }
+        if after is not None:
+            params["after"] = after.astimezone(timezone.utc).isoformat()
+        if until is not None:
+            params["until"] = until.astimezone(timezone.utc).isoformat()
+        if symbol:
+            params["symbol"] = symbol.upper()
+
+        raw = self._trade.get("/account/activities/FILL", params)
+        if not isinstance(raw, list):
+            return []
+        out: list[dict[str, Any]] = []
+        for r in raw:
+            if not isinstance(r, dict):
+                continue
+            out.append(
+                {
+                    "id": r.get("id"),
+                    "symbol": str(r.get("symbol") or "").upper(),
+                    "side": str(r.get("side") or "").lower(),
+                    "price": _f(r.get("price")),
+                    "qty": _f(r.get("qty")),
+                    "transaction_time": r.get("transaction_time"),
+                    "order_id": r.get("order_id"),
                 }
             )
         return out

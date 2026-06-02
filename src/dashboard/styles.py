@@ -73,6 +73,57 @@ DASHBOARD_CSS = """
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }
+  .pnl-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line-soft);
+    background: linear-gradient(155deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.85) 100%);
+  }
+  .pnl-banner-gain {
+    border-color: rgba(34, 197, 94, 0.45);
+    box-shadow: 0 0 24px rgba(34, 197, 94, 0.12);
+  }
+  .pnl-banner-loss {
+    border-color: rgba(244, 63, 94, 0.45);
+    box-shadow: 0 0 24px rgba(244, 63, 94, 0.12);
+  }
+  .pnl-banner-flat {
+    border-color: rgba(148, 163, 184, 0.35);
+  }
+  .pnl-banner-state {
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 5px 10px;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .pnl-banner-gain .pnl-banner-state {
+    color: #86efac;
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid rgba(34, 197, 94, 0.35);
+  }
+  .pnl-banner-loss .pnl-banner-state {
+    color: #fda4af;
+    background: rgba(244, 63, 94, 0.15);
+    border: 1px solid rgba(244, 63, 94, 0.35);
+  }
+  .pnl-banner-flat .pnl-banner-state {
+    color: #cbd5e1;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+  }
+  .pnl-banner-headline {
+    font-size: 0.92rem;
+    font-weight: 650;
+    color: #e2e8f0;
+    line-height: 1.35;
+  }
   .metric-strip {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -125,6 +176,20 @@ DASHBOARD_CSS = """
   }
   .metric-tile .tone-up { color: #6ee7b7 !important; }
   .metric-tile .tone-down { color: #fda4af !important; }
+  .metric-tile-pnl-gain {
+    border-color: rgba(34, 197, 94, 0.5) !important;
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.14), var(--shadow-card);
+  }
+  .metric-tile-pnl-loss {
+    border-color: rgba(244, 63, 94, 0.5) !important;
+    box-shadow: 0 0 20px rgba(244, 63, 94, 0.14), var(--shadow-card);
+  }
+  .pnl-pct-chip {
+    font-size: 0.78rem;
+    font-weight: 650;
+    opacity: 0.9;
+    margin-left: 4px;
+  }
   .session-clock {
     text-align: center;
     padding: 6px 12px;

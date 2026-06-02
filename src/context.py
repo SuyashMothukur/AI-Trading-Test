@@ -9,7 +9,7 @@ from .learning import build_learning_snapshot, evaluate_pending_actions
 from .quant import build_quant_snapshot
 from .risk import daily_loss_tripped, position_map
 from .state import DailyState, ensure_session_start_equity, utc_now_iso
-from .symbols_context import symbols_for_context
+from .symbols_context import candidate_pool_for_bars, rank_symbols_for_context
 from .universe import resolve_universe_with_metadata
 
 
@@ -50,13 +50,11 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
         )
 
     pos_syms = [p["symbol"] for p in positions]
-    ctx_syms = symbols_for_context(uni, pos_syms, s.max_context_symbols)
-    bars: dict[str, Any] = {}
-    bars_warning: str | None = None
-    try:
-        bars = broker.recent_daily_bars(ctx_syms, days=14)
-    except Exception as e:
-        bars_warning = str(e)
+    pool_cap = min(
+        len(uni),
+        max(s.max_context_symbols * s.context_candidate_multiplier, s.max_context_symbols + 10),
+    )
+    candidate_syms = candidate_pool_for_bars(uni, pos_syms, pool_cap)
 
     learning_update: dict[str, Any] | None = None
     learning_snapshot = {"global": {}, "symbol_priors": [], "notes": "Unavailable"}
@@ -68,6 +66,24 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
         learning_snapshot = build_learning_snapshot(s.learning_min_samples)
     except Exception:
         pass
+
+    bars: dict[str, Any] = {}
+    bars_warning: str | None = None
+    ctx_syms = candidate_syms[: s.max_context_symbols]
+    try:
+        bars = broker.recent_daily_bars(candidate_syms, days=14)
+        ctx_syms = rank_symbols_for_context(
+            candidates=candidate_syms,
+            bars_by_symbol=bars,
+            learning_feedback=learning_snapshot,
+            open_position_symbols=pos_syms,
+            limit=s.max_context_symbols,
+            weak_buy_blocklist=set(s.weak_buy_blocklist),
+            auto_blocklist_min_samples=s.auto_blocklist_min_samples,
+            auto_blocklist_avg_below=s.auto_blocklist_avg_below,
+        )
+    except Exception as e:
+        bars_warning = str(e)
 
     news_warning: str | None = None
     news_items: list[dict[str, Any]] = []
@@ -107,6 +123,28 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
         "quant_snapshot": build_quant_snapshot(bars),
         "recent_news": news_items,
         "learning_feedback": learning_snapshot,
+        "execution_policy": {
+            "min_confidence_execute": s.min_confidence_execute,
+            "max_buys_per_cycle": s.max_buys_per_cycle,
+            "max_plan_actions": s.max_plan_actions,
+            "bullish_only_buys": s.bullish_only_buys,
+            "weak_buy_blocklist": sorted(
+                set(s.weak_buy_blocklist)
+                | {
+                    str(r.get("ticker") or "").upper()
+                    for r in (learning_snapshot.get("symbol_priors") or [])
+                    if int(r.get("samples") or 0) >= s.auto_blocklist_min_samples
+                    and r.get("avg_return_pct") is not None
+                    and float(r["avg_return_pct"]) < s.auto_blocklist_avg_below
+                }
+            ),
+            "symbol_cooldown_hours": s.symbol_cooldown_hours,
+            "min_mom5_for_buy": s.min_mom5_for_buy,
+            "min_mom10_for_buy": s.min_mom10_for_buy,
+            "require_trend_alignment": s.require_trend_alignment,
+            "sell_dead_zone": [s.sell_dead_zone_min_pct, s.sell_dead_zone_max_pct],
+            "risk_per_trade_pct": s.risk_per_trade_pct,
+        },
     }
 
     return (

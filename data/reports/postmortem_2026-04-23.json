@@ -1,0 +1,18 @@
+{
+  "day_utc": "2026-04-23",
+  "generated_at_utc": "2026-04-23T00:29:08.058073+00:00",
+  "actions_logged_today": 2,
+  "resolved_today": 0,
+  "pending_today": 2,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "Skip SELL LHX: no position / size.",
+    "Skip SELL LITE: no position / size.",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

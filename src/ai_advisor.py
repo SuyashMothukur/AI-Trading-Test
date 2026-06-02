@@ -31,7 +31,7 @@ def propose_actions(
 ) -> dict[str, Any]:
     client = OpenAI(api_key=api_key)
     system = _load_system_prompt()
-    user = json.dumps(user_payload, indent=2)
+    user = json.dumps(user_payload, separators=(",", ":"))
     resp = client.chat.completions.create(
         model=model,
         messages=[

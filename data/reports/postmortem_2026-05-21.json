@@ -1,0 +1,18 @@
+{
+  "day_utc": "2026-05-21",
+  "generated_at_utc": "2026-05-21T00:13:40.958276+00:00",
+  "actions_logged_today": 2,
+  "resolved_today": 0,
+  "pending_today": 2,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "GUARDRAIL BLOCK MDT: confidence 0.61 below execution floor 0.64",
+    "GUARDRAIL BLOCK MNST: recovery mode: buy entries restricted to bullish regime (got choppy)",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

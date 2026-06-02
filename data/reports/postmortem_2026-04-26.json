@@ -1,0 +1,21 @@
+{
+  "day_utc": "2026-04-26",
+  "generated_at_utc": "2026-04-26T00:27:13.284847+00:00",
+  "actions_logged_today": 5,
+  "resolved_today": 0,
+  "pending_today": 5,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "Skip SELL LHX: no position / size.",
+    "GUARDRAIL BLOCK LITE: confidence 0.50 below execution floor 0.55",
+    "GUARDRAIL BLOCK LLY: confidence 0.50 below execution floor 0.55",
+    "GUARDRAIL BLOCK LMT: confidence 0.50 below execution floor 0.55",
+    "GUARDRAIL BLOCK MDT: confidence 0.50 below execution floor 0.55",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

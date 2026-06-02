@@ -68,5 +68,22 @@ def validate_sell(
     return RiskDecision(True, "ok")
 
 
+def sellable_qty(pos: dict[str, Any]) -> float:
+    """Shares we can sell now (Alpaca sometimes reports qty_available=0 while qty>0)."""
+    qty_total = float(pos.get("qty") or 0.0)
+    raw_avail = pos.get("qty_available")
+    if raw_avail is not None:
+        avail = float(raw_avail)
+        if avail > 1e-9:
+            return avail
+    if qty_total > 1e-9:
+        return qty_total
+    px = float(pos.get("current_price_usd") or 0.0)
+    mv = float(pos.get("market_value_usd") or 0.0)
+    if px > 0 and mv > 0:
+        return mv / px
+    return 0.0
+
+
 def position_map(positions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {p["symbol"].upper(): p for p in positions}

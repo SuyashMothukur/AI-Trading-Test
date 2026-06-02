@@ -25,6 +25,25 @@ def _closes_from_bars(bars: list[dict[str, Any]]) -> list[float]:
     return vals
 
 
+def _atr_10(bars: list[dict[str, Any]]) -> float:
+    """10-day average true range (absolute, not %)."""
+    if len(bars) < 3:
+        return 0.0
+    trs: list[float] = []
+    window = bars[-11:]
+    for i in range(1, len(window)):
+        h = float(window[i].get("h") or window[i].get("c") or 0.0)
+        l = float(window[i].get("l") or window[i].get("c") or 0.0)
+        prev_c = float(window[i - 1].get("c") or 0.0)
+        if h <= 0 or l <= 0 or prev_c <= 0:
+            continue
+        tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
+        trs.append(tr)
+    if not trs:
+        return 0.0
+    return sum(trs[-10:]) / min(len(trs), 10)
+
+
 def symbol_metrics(bars_by_symbol: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, float]]:
     out: dict[str, dict[str, float]] = {}
     for sym, bars in bars_by_symbol.items():
@@ -37,12 +56,16 @@ def symbol_metrics(bars_by_symbol: dict[str, list[dict[str, Any]]]) -> dict[str,
         mom10 = (closes[-1] / closes[-11]) - 1.0 if len(closes) >= 11 else mom5
         vols = [float(b.get("v") or 0.0) for b in bars[-10:]]
         avg_vol_10d = (sum(vols) / len(vols)) if vols else 0.0
+        atr10 = _atr_10(bars)
+        trend_aligned = mom5 > 0 and mom10 > 0
         out[sym.upper()] = {
             "last_close": closes[-1],
             "mom_5d": mom5,
             "mom_10d": mom10,
             "vol_10d": vol10,
             "avg_volume_10d": avg_vol_10d,
+            "atr_10d": atr10,
+            "trend_aligned": trend_aligned,
         }
     return out
 

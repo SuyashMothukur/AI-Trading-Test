@@ -1,0 +1,19 @@
+{
+  "day_utc": "2026-05-22",
+  "generated_at_utc": "2026-05-22T02:14:30.564082+00:00",
+  "actions_logged_today": 6,
+  "resolved_today": 0,
+  "pending_today": 6,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "GUARDRAIL BLOCK L: liquidity too low (avg_volume_10d=32,102)",
+    "GUARDRAIL BLOCK LEN: confidence 0.61 below execution floor 0.64",
+    "GUARDRAIL BLOCK KIM: confidence 0.60 below execution floor 0.64",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

@@ -11,11 +11,15 @@ from .decision_engine import (
     evaluate_action_guardrails,
     regime_notional_multiplier,
     symbol_quant_row,
+    learning_priors_map,
 )
-from .learning import record_cycle_and_actions
+from .position_sizing import adjust_buy_notional
+from .learning import recent_buy_within_hours, record_cycle_and_actions
 from .position_state import load_position_state, save_position_state, sync_position_state
 from .reporting import write_daily_postmortem
-from .risk import position_map, validate_buy, validate_sell
+from .payload_slim import slim_payload_for_model
+from .plan_guard import normalize_plan
+from .risk import position_map, sellable_qty, validate_buy, validate_sell
 from .state import bump_orders_placed
 
 
@@ -28,7 +32,7 @@ def _sell_qty_for_action(
 ) -> float | None:
     if pos is None:
         return None
-    avail = float(pos.get("qty_available") or 0.0)
+    avail = sellable_qty(pos)
     if avail <= 0:
         return None
     q = act.get("qty")
@@ -43,10 +47,23 @@ def _sell_qty_for_action(
 
 def propose_plan(ctx: TradingContext) -> dict[str, Any]:
     s = ctx.settings
+    slim = slim_payload_for_model(ctx.user_payload)
     plan = propose_actions(
         api_key=s.openai_api_key,
         model=s.openai_model,
-        user_payload=ctx.user_payload,
+        user_payload=slim,
+    )
+    regime = (
+        (ctx.user_payload.get("quant_snapshot") or {}).get("market_regime") or {}
+    ).get("regime")
+    plan = normalize_plan(
+        plan,
+        ctx.pmap,
+        max_actions=s.max_plan_actions,
+        max_buys=s.max_buys_per_cycle,
+        regime=str(regime) if regime else None,
+        max_buys_bullish=s.max_buys_bullish,
+        max_buys_non_bullish=s.max_buys_non_bullish,
     )
     record_cycle_and_actions(
         payload=ctx.user_payload,
@@ -109,7 +126,7 @@ def _run_hard_exits(ctx: TradingContext, lines: list[str]) -> int:
         sym = str(pos.get("symbol") or "").upper()
         if not sym:
             continue
-        qty = float(pos.get("qty_available") or 0.0)
+        qty = sellable_qty(pos)
         if qty <= 0 or qty < 1e-6:
             continue
         entry = float(pos.get("avg_entry_price") or 0.0)
@@ -119,9 +136,24 @@ def _run_hard_exits(ctx: TradingContext, lines: list[str]) -> int:
         st = state.get(sym) or {}
         high = float(st.get("high_watermark") or px)
         opened_days = _days_since_iso(st.get("opened_at"))
+        met = symbol_quant_row(ctx.user_payload.get("quant_snapshot") or {}, sym)
+        unreal_pct = (px - entry) / entry
 
         reason: str | None = None
-        if px <= entry * (1.0 - s.stop_loss_pct):
+        if unreal_pct <= -float(s.underwater_exit_pct):
+            mom5 = float((met or {}).get("mom_5d") or 0.0)
+            if mom5 < -0.003:
+                reason = f"underwater cut ({unreal_pct:.2%}, mom5={mom5:.2%})"
+        elif s.use_atr_stops and met:
+            atr = float(met.get("atr_10d") or 0.0)
+            if atr > 0:
+                stop_px = min(
+                    entry - float(s.atr_stop_mult) * atr,
+                    entry * (1.0 - s.stop_loss_pct),
+                )
+                if px <= stop_px:
+                    reason = f"ATR stop ({(px/entry-1):.2%})"
+        elif px <= entry * (1.0 - s.stop_loss_pct):
             reason = f"stop-loss ({(px/entry-1):.2%})"
         elif px >= entry * (1.0 + s.take_profit_pct):
             reason = f"take-profit ({(px/entry-1):.2%})"
@@ -180,8 +212,16 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
         positions = broker.positions()
         pmap = position_map(positions)
 
-    actions = plan.get("actions") or []
+    actions = sorted(
+        plan.get("actions") or [],
+        key=lambda a: (
+            0 if (a.get("side") or "").lower() == "sell" else 1,
+            0 if (a.get("side") or "").lower() == "buy" else 2,
+        ),
+    )
     submitted = 0
+    lf = ctx.user_payload.get("learning_feedback") or {}
+    priors = learning_priors_map(lf)
     regime_mult = regime_notional_multiplier(
         ctx.user_payload.get("quant_snapshot") or {},
         bullish=s.regime_mult_bullish,
@@ -197,7 +237,7 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
         if side == "buy":
             g_ok, g_reason = evaluate_action_guardrails(
                 action=act,
-                learning_feedback=ctx.user_payload.get("learning_feedback") or {},
+                learning_feedback=lf,
                 quant_snapshot=ctx.user_payload.get("quant_snapshot") or {},
                 min_samples=s.learning_min_samples,
                 settings=s,
@@ -206,6 +246,12 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
             if not g_ok:
                 lines.append(f"GUARDRAIL BLOCK {ticker}: {g_reason}")
                 continue
+            if recent_buy_within_hours(ticker, float(s.symbol_cooldown_hours)):
+                lines.append(
+                    f"GUARDRAIL BLOCK {ticker}: buy cooldown "
+                    f"({s.symbol_cooldown_hours}h since last buy logged)"
+                )
+                continue
             n = act.get("notional_usd")
             if n is None:
                 lines.append(f"Skip BUY {ticker}: need notional_usd.")
@@ -213,6 +259,14 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
             notional = float(n) * regime_mult
             met = symbol_quant_row(ctx.user_payload.get("quant_snapshot") or {}, ticker)
             notional = _vol_target_adjust_notional(notional, met, s)
+            notional = adjust_buy_notional(
+                notional,
+                equity_usd=acct.equity_usd,
+                settings=s,
+                learning_feedback=lf,
+                symbol_prior=priors.get(ticker),
+                metrics=met,
+            )
             if notional < 20:
                 lines.append(f"BLOCK BUY {ticker}: regime-sized notional too small (${notional:.2f})")
                 continue
@@ -253,11 +307,12 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
         elif side == "sell":
             g_ok, g_reason = evaluate_action_guardrails(
                 action=act,
-                learning_feedback=ctx.user_payload.get("learning_feedback") or {},
+                learning_feedback=lf,
                 quant_snapshot=ctx.user_payload.get("quant_snapshot") or {},
                 min_samples=s.learning_min_samples,
                 settings=s,
                 min_avg_volume_10d=s.min_avg_volume_10d,
+                position=pmap.get(ticker),
             )
             if not g_ok:
                 lines.append(f"GUARDRAIL BLOCK {ticker}: {g_reason}")
@@ -266,11 +321,12 @@ def execute_plan(ctx: TradingContext, plan: dict[str, Any]) -> list[str]:
             if sq is None or sq <= 0 or sq < 1e-6:
                 lines.append(f"Skip SELL {ticker}: no position / size.")
                 continue
+            pos_row = pmap[ticker]
             d = validate_sell(
                 ticker=ticker,
                 universe=uni_set,
                 qty=sq,
-                available_qty=float(pmap[ticker]["qty_available"]),
+                available_qty=sellable_qty(pos_row),
             )
             if not d.ok:
                 lines.append(f"BLOCK SELL {ticker}: {d.reason}")
