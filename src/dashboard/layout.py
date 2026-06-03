@@ -20,7 +20,12 @@ from .trading_chart import TradingChart
 def _live_top_metrics(ctx: TradingContext, hist_df: pd.DataFrame, hist_err: str | None) -> None:
     try:
         acct = ctx.broker.account()
-        pos = ctx.broker.positions()
+        from src.risk import tradeable_positions
+
+        pos = tradeable_positions(
+            ctx.broker.positions(),
+            min_market_value_usd=ctx.settings.min_position_market_value_usd,
+        )
         st.session_state["_dash_live_account"] = acct
         st.session_state["_dash_live_positions"] = pos
     except Exception:
@@ -84,4 +89,10 @@ class DashboardLayout:
             PositionsTable.render(positions_view(ctx.positions, search, sort_choice))
         else:
             st.caption("No open positions.")
+        if getattr(ctx, "dust_symbols", None):
+            st.caption(
+                f"Ignoring {len(ctx.dust_symbols)} dust holding(s): "
+                f"{', '.join(ctx.dust_symbols[:8])}"
+                + ("…" if len(ctx.dust_symbols) > 8 else "")
+            )
         st.markdown("</div>", unsafe_allow_html=True)

@@ -68,6 +68,33 @@ def validate_sell(
     return RiskDecision(True, "ok")
 
 
+def is_dust_position(
+    pos: dict[str, Any],
+    *,
+    min_market_value_usd: float = 1.0,
+    min_qty: float = 0.01,
+) -> bool:
+    """Fractional leftovers Alpaca still lists but cannot be traded."""
+    mv = float(pos.get("market_value_usd") or 0.0)
+    qty = float(pos.get("qty") or 0.0)
+    return mv < min_market_value_usd and qty < min_qty
+
+
+def tradeable_positions(
+    positions: list[dict[str, Any]],
+    *,
+    min_market_value_usd: float = 1.0,
+    min_qty: float = 0.01,
+) -> list[dict[str, Any]]:
+    return [
+        p
+        for p in positions
+        if not is_dust_position(
+            p, min_market_value_usd=min_market_value_usd, min_qty=min_qty
+        )
+    ]
+
+
 def sellable_qty(pos: dict[str, Any]) -> float:
     """Shares we can sell now (Alpaca sometimes reports qty_available=0 while qty>0)."""
     qty_total = float(pos.get("qty") or 0.0)
@@ -86,4 +113,4 @@ def sellable_qty(pos: dict[str, Any]) -> float:
 
 
 def position_map(positions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    return {p["symbol"].upper(): p for p in positions}
+    return {str(p["symbol"]).upper(): p for p in positions if p.get("symbol")}

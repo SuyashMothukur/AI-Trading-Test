@@ -82,7 +82,7 @@ def _effective_execution_floor(
         med_vol = None
 
     if regime == "bearish" and side == "buy":
-        floor = max(floor, 0.75)
+        floor = max(floor, min(0.72, settings.min_confidence_execute + 0.12))
     elif regime == "choppy" and med_vol is not None and med_vol > 0.025:
         # Elevated cross-sectional vol: require more conviction (documented edge in selective trading).
         floor = max(floor, settings.min_confidence_execute + 0.05)

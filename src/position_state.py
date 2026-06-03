@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import project_root
+from .risk import is_dust_position, tradeable_positions
 
 
 def _now_iso() -> str:
@@ -36,7 +37,11 @@ def sync_position_state(
     *,
     positions: list[dict[str, Any]],
     symbol_metadata: dict[str, dict[str, str]],
+    min_market_value_usd: float = 1.0,
 ) -> dict[str, Any]:
+    positions = tradeable_positions(
+        positions, min_market_value_usd=min_market_value_usd
+    )
     state = load_position_state()
     active = {str(p.get("symbol") or "").upper() for p in positions}
     state = {k: v for k, v in state.items() if k in active}

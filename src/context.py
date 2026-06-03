@@ -7,7 +7,7 @@ from .broker_alpaca import AccountView, AlpacaBroker
 from .config import Settings, kill_switch_active
 from .learning import build_learning_snapshot, evaluate_pending_actions
 from .quant import build_quant_snapshot
-from .risk import daily_loss_tripped, position_map
+from .risk import daily_loss_tripped, is_dust_position, position_map, tradeable_positions
 from .state import DailyState, ensure_session_start_equity, utc_now_iso
 from .symbols_context import candidate_pool_for_bars, rank_symbols_for_context
 from .universe import resolve_universe_with_metadata
@@ -27,6 +27,7 @@ class TradingContext:
     news_warning: str | None
     learning_update: dict[str, Any] | None
     blocked_reason: str | None
+    dust_symbols: list[str]
 
 
 def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | None]:
@@ -36,7 +37,15 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
     uni, meta = resolve_universe_with_metadata(s.trade_universe)
     broker = AlpacaBroker(s.alpaca_api_key, s.alpaca_secret_key, paper=s.alpaca_paper)
     acct = broker.account()
-    positions = broker.positions()
+    raw_positions = broker.positions()
+    dust_syms = [
+        str(p.get("symbol") or "").upper()
+        for p in raw_positions
+        if is_dust_position(p, min_market_value_usd=s.min_position_market_value_usd)
+    ]
+    positions = tradeable_positions(
+        raw_positions, min_market_value_usd=s.min_position_market_value_usd
+    )
     pmap = position_map(positions)
 
     dstate = ensure_session_start_equity(acct.equity_usd)
@@ -118,6 +127,7 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
         "full_universe": uni,
         "symbol_metadata": meta,
         "context_symbols": ctx_syms,
+        "dust_positions_ignored": dust_syms,
         "open_positions": positions,
         "bars_by_symbol": bars,
         "quant_snapshot": build_quant_snapshot(bars),
@@ -161,6 +171,7 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
             news_warning=news_warning,
             learning_update=learning_update,
             blocked_reason=blocked,
+            dust_symbols=dust_syms,
         ),
         None,
     )

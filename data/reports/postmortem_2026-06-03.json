@@ -1,12 +1,13 @@
 {
-  "day_utc": "2026-06-02",
-  "generated_at_utc": "2026-06-02T04:48:22.458148+00:00",
-  "actions_logged_today": 0,
+  "day_utc": "2026-06-03",
+  "generated_at_utc": "2026-06-03T00:01:08.082233+00:00",
+  "actions_logged_today": 1,
   "resolved_today": 0,
-  "pending_today": 0,
+  "pending_today": 1,
   "win_rate_today": null,
   "avg_return_today": null,
   "execution_lines_last_cycle": [
+    "GUARDRAIL BLOCK WDC: liquidity too low (avg_volume_10d=192,967)",
     "Done. Orders submitted this run: 0"
   ],
   "top_mistakes": [

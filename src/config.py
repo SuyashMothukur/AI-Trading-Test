@@ -95,6 +95,8 @@ class Settings:
     use_fractional_kelly: bool
     max_buys_bullish: int
     max_buys_non_bullish: int
+    min_position_market_value_usd: float
+    disable_sell_dead_zone: bool
 
 
 def _bool(v: str | None, default: bool = False) -> bool:
@@ -189,7 +191,7 @@ def load_settings() -> Settings:
         block_buys_roll_exp_below=_float(os.getenv("BLOCK_BUYS_ROLL_EXP_BELOW"), -0.008),
         block_buys_roll_min_samples=_int(os.getenv("BLOCK_BUYS_ROLL_MIN_SAMPLES"), 15),
         min_mom10_for_buy=_float(os.getenv("MIN_MOM10_FOR_BUY"), 0.0),
-        require_trend_alignment=_bool(os.getenv("REQUIRE_TREND_ALIGNMENT"), default=True),
+        require_trend_alignment=_bool(os.getenv("REQUIRE_TREND_ALIGNMENT"), default=False),
         sell_dead_zone_min_pct=_float(os.getenv("SELL_DEAD_ZONE_MIN_PCT"), -0.015),
         sell_dead_zone_max_pct=_float(os.getenv("SELL_DEAD_ZONE_MAX_PCT"), 0.025),
         sell_take_profit_min_pct=_float(os.getenv("SELL_TAKE_PROFIT_MIN_PCT"), 0.03),
@@ -201,6 +203,8 @@ def load_settings() -> Settings:
         use_fractional_kelly=_bool(os.getenv("USE_FRACTIONAL_KELLY"), default=True),
         max_buys_bullish=_int(os.getenv("MAX_BUYS_BULLISH"), 2),
         max_buys_non_bullish=_int(os.getenv("MAX_BUYS_NON_BULLISH"), 1),
+        min_position_market_value_usd=_float(os.getenv("MIN_POSITION_MARKET_VALUE_USD"), 1.0),
+        disable_sell_dead_zone=_bool(os.getenv("DISABLE_SELL_DEAD_ZONE"), default=True),
     )
 
 

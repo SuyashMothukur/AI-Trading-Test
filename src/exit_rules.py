@@ -29,6 +29,9 @@ def discretionary_sell_allowed(
     if unreal is None:
         return False, "missing entry/mark price"
 
+    if settings.disable_sell_dead_zone:
+        return True, "sell dead zone disabled"
+
     if unreal >= float(settings.sell_take_profit_min_pct):
         return True, f"profit zone ({unreal:.2%})"
 

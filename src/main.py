@@ -120,6 +120,7 @@ def _run_hard_exits(ctx: TradingContext, lines: list[str]) -> int:
     state = sync_position_state(
         positions=ctx.positions,
         symbol_metadata=ctx.user_payload.get("symbol_metadata") or {},
+        min_market_value_usd=s.min_position_market_value_usd,
     )
     sold = 0
     for pos in ctx.positions:
