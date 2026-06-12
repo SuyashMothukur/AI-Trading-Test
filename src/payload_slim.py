@@ -57,7 +57,16 @@ def slim_payload_for_model(payload: dict[str, Any]) -> dict[str, Any]:
             "symbol_metrics": slim_metrics,
         },
         "recent_news": payload.get("recent_news") or [],
-        "learning_feedback": payload.get("learning_feedback"),
+        "learning_feedback": {
+            k: (payload.get("learning_feedback") or {}).get(k)
+            for k in (
+                "global",
+                "symbol_priors",
+                "top_winners",
+                "chronic_losers",
+                "notes",
+            )
+        },
         "execution_policy": payload.get("execution_policy"),
         "symbol_metadata": slim_meta,
     }

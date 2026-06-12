@@ -1,0 +1,16 @@
+{
+  "day_utc": "2026-06-06",
+  "generated_at_utc": "2026-06-06T00:01:48.842227+00:00",
+  "actions_logged_today": 0,
+  "resolved_today": 0,
+  "pending_today": 0,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

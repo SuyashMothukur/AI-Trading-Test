@@ -154,6 +154,8 @@ def gather_trading_context(s: Settings) -> tuple[TradingContext | None, str | No
             "require_trend_alignment": s.require_trend_alignment,
             "sell_dead_zone": [s.sell_dead_zone_min_pct, s.sell_dead_zone_max_pct],
             "risk_per_trade_pct": s.risk_per_trade_pct,
+            "top_winners": learning_snapshot.get("top_winners") or [],
+            "chronic_losers": learning_snapshot.get("chronic_losers") or [],
         },
     }
 

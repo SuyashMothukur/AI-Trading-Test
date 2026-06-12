@@ -97,6 +97,11 @@ class Settings:
     max_buys_non_bullish: int
     min_position_market_value_usd: float
     disable_sell_dead_zone: bool
+    block_intraday_buys: bool
+    min_symbol_win_rate: float
+    min_symbol_samples_for_win_filter: int
+    choppy_min_confidence: float
+    min_mom5_for_new_symbols: float
 
 
 def _bool(v: str | None, default: bool = False) -> bool:
@@ -191,7 +196,7 @@ def load_settings() -> Settings:
         block_buys_roll_exp_below=_float(os.getenv("BLOCK_BUYS_ROLL_EXP_BELOW"), -0.008),
         block_buys_roll_min_samples=_int(os.getenv("BLOCK_BUYS_ROLL_MIN_SAMPLES"), 15),
         min_mom10_for_buy=_float(os.getenv("MIN_MOM10_FOR_BUY"), 0.0),
-        require_trend_alignment=_bool(os.getenv("REQUIRE_TREND_ALIGNMENT"), default=False),
+        require_trend_alignment=_bool(os.getenv("REQUIRE_TREND_ALIGNMENT"), default=True),
         sell_dead_zone_min_pct=_float(os.getenv("SELL_DEAD_ZONE_MIN_PCT"), -0.015),
         sell_dead_zone_max_pct=_float(os.getenv("SELL_DEAD_ZONE_MAX_PCT"), 0.025),
         sell_take_profit_min_pct=_float(os.getenv("SELL_TAKE_PROFIT_MIN_PCT"), 0.03),
@@ -204,7 +209,14 @@ def load_settings() -> Settings:
         max_buys_bullish=_int(os.getenv("MAX_BUYS_BULLISH"), 2),
         max_buys_non_bullish=_int(os.getenv("MAX_BUYS_NON_BULLISH"), 1),
         min_position_market_value_usd=_float(os.getenv("MIN_POSITION_MARKET_VALUE_USD"), 1.0),
-        disable_sell_dead_zone=_bool(os.getenv("DISABLE_SELL_DEAD_ZONE"), default=True),
+        disable_sell_dead_zone=_bool(os.getenv("DISABLE_SELL_DEAD_ZONE"), default=False),
+        block_intraday_buys=_bool(os.getenv("BLOCK_INTRADAY_BUYS"), default=True),
+        min_symbol_win_rate=_float(os.getenv("MIN_SYMBOL_WIN_RATE"), 0.38),
+        min_symbol_samples_for_win_filter=_int(
+            os.getenv("MIN_SYMBOL_SAMPLES_FOR_WIN_FILTER"), 5
+        ),
+        choppy_min_confidence=_float(os.getenv("CHOPPY_MIN_CONFIDENCE"), 0.72),
+        min_mom5_for_new_symbols=_float(os.getenv("MIN_MOM5_FOR_NEW_SYMBOLS"), 0.015),
     )
 
 

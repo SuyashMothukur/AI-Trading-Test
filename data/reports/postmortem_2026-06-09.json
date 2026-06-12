@@ -1,0 +1,17 @@
+{
+  "day_utc": "2026-06-09",
+  "generated_at_utc": "2026-06-09T00:02:43.020788+00:00",
+  "actions_logged_today": 1,
+  "resolved_today": 0,
+  "pending_today": 1,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "GUARDRAIL BLOCK COST: liquidity too low (avg_volume_10d=87,077)",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "day_utc": "2026-06-11",
+  "generated_at_utc": "2026-06-11T00:03:15.083509+00:00",
+  "actions_logged_today": 1,
+  "resolved_today": 0,
+  "pending_today": 1,
+  "win_rate_today": null,
+  "avg_return_today": null,
+  "execution_lines_last_cycle": [
+    "GUARDRAIL BLOCK KO: buy cooldown (48h since last buy logged)",
+    "Done. Orders submitted this run: 0"
+  ],
+  "top_mistakes": [
+    "High-confidence losses should be reviewed for overfitting to news.",
+    "Repeated losses in same symbol/sector should be downweighted."
+  ]
+}

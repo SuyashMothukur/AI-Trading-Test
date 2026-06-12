@@ -79,12 +79,19 @@ def rank_symbols_for_context(
         if pri:
             n = int(pri.get("samples") or 0)
             avg = float(pri.get("avg_return_pct") or 0.0)
+            wr = float(pri.get("win_rate") or 0.0)
             if n >= auto_blocklist_min_samples and avg < auto_blocklist_avg_below:
                 score -= 4.0
+            elif n >= 5 and wr < 0.38 and avg <= 0:
+                score -= 3.0
             elif n >= 3 and avg < 0:
                 score -= 1.5
+            elif avg > 0.003 and wr >= 0.45:
+                score += 1.6
             elif avg > 0.003:
                 score += 0.8
+            elif n >= 5:
+                score += wr * 1.2
         scored.append((score, su))
 
     scored.sort(key=lambda x: x[0], reverse=True)

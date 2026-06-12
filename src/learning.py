@@ -361,6 +361,10 @@ def build_learning_snapshot(min_samples: int) -> dict[str, Any]:
             }
         )
     priors.sort(key=lambda x: (x["confidence"], x["avg_return_pct"]), reverse=True)
+    from .symbol_quality import chronic_losers, top_winners
+
+    winners = top_winners({"symbol_priors": priors}, min_samples=max(min_samples, 5))
+    losers = chronic_losers({"symbol_priors": priors}, min_samples=max(min_samples, 5))
     by_side = _bucket_stats(resolved, "side")
     by_regime = _bucket_stats(resolved, "regime_at_decision")
     by_horizon = _bucket_stats(resolved, "horizon")
@@ -375,6 +379,8 @@ def build_learning_snapshot(min_samples: int) -> dict[str, Any]:
             "rolling_20": rolling20,
         },
         "symbol_priors": priors[:40],
+        "top_winners": winners,
+        "chronic_losers": losers,
         "slice_priors": {
             "by_side": by_side,
             "by_regime": by_regime,

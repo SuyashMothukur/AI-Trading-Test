@@ -1,9 +1,9 @@
 {
-  "day": "2026-06-03",
+  "day": "2026-06-12",
   "runs_today": 1,
   "extra_runs_today": 0,
-  "last_run_ts": "2026-06-03T00:01:08.086609+00:00",
-  "last_max_confidence": 0.64,
+  "last_run_ts": "2026-06-12T00:03:25.994397+00:00",
+  "last_max_confidence": 0.68,
   "last_reason": "daily_minimum",
   "enabled": true
 }

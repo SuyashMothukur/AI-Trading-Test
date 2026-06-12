@@ -4,6 +4,7 @@ from typing import Any
 
 from .config import Settings
 from .exit_rules import discretionary_sell_allowed
+from .symbol_quality import chronic_losers, evaluate_buy_quality, top_winners
 
 
 def _priors_map(learning_feedback: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -40,12 +41,22 @@ def combined_buy_blocklist(
             continue
         n = int(row.get("samples") or 0)
         avg = row.get("avg_return_pct")
+        wr = row.get("win_rate")
         if (
             n >= settings.auto_blocklist_min_samples
             and avg is not None
             and float(avg) < float(settings.auto_blocklist_avg_below)
         ):
             out.add(t)
+        if (
+            n >= settings.min_symbol_samples_for_win_filter
+            and wr is not None
+            and avg is not None
+            and float(wr) < float(settings.min_symbol_win_rate)
+            and float(avg) <= 0
+        ):
+            out.add(t)
+    out.update(chronic_losers(learning_feedback, min_samples=settings.min_symbol_samples_for_win_filter))
     return out
 
 
@@ -177,6 +188,12 @@ def evaluate_action_guardrails(
     pri = _priors_map(learning_feedback).get(ticker)
     met = _metrics_map(quant_snapshot).get(ticker)
 
+    winners = set(
+        top_winners(
+            learning_feedback,
+            min_samples=settings.min_symbol_samples_for_win_filter,
+        )
+    )
     eff_floor = _effective_execution_floor(
         side=side,
         regime=regime,
@@ -185,6 +202,8 @@ def evaluate_action_guardrails(
         learning_feedback=learning_feedback,
         settings=settings,
     )
+    if side == "buy" and ticker in winners:
+        eff_floor = max(float(settings.min_confidence_execute) - 0.02, eff_floor - 0.03)
     if conf < eff_floor:
         return False, f"confidence {conf:.2f} below execution floor {eff_floor:.2f}"
 
@@ -240,19 +259,20 @@ def evaluate_action_guardrails(
             return False, f"regime slice weak ({regime}, samples={r_n}, avg_return={float(r_avg):.2%})"
 
     if side == "buy":
+        ok, reason = evaluate_buy_quality(
+            ticker=ticker,
+            action=action,
+            metrics=met,
+            prior=pri,
+            regime=regime,
+            settings=settings,
+            top_winner_set=winners,
+        )
+        if not ok:
+            return False, reason
         if met:
-            mom5 = float(met.get("mom_5d") or 0.0)
             vol10 = float(met.get("vol_10d") or 0.0)
             avg_vol = float(met.get("avg_volume_10d") or 0.0)
-            min_mom = float(settings.min_mom5_for_buy)
-            min_mom10 = float(settings.min_mom10_for_buy)
-            mom10 = float(met.get("mom_10d") or 0.0)
-            if mom5 < min_mom:
-                return False, f"5D momentum {mom5:.2%} below floor {min_mom:.2%}"
-            if mom10 < min_mom10:
-                return False, f"10D momentum {mom10:.2%} below floor {min_mom10:.2%}"
-            if settings.require_trend_alignment and not met.get("trend_aligned"):
-                return False, "5D/10D trend not aligned (momentum filter)"
             if vol10 > 0.07:
                 return False, f"volatility too high ({vol10:.2%})"
             if avg_vol < min_avg_volume_10d:
